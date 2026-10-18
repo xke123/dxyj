@@ -1,17 +1,18 @@
 /**
- * CanvasRenderer.ts — 原版风格渲染器（现代宽屏）
+ * CanvasRenderer.ts — 原版风格渲染器（现代宽屏 + 水晶宝藏特效）
  *
- * 渲染层严格还原原版外观：
+ * 渲染层严格还原原版外观与特效：
  *  - 4色方块（纯色矩形 + 高光斜线 + 暗影斜线）
  *  - 数字岩石（灰色矩形 + 中央耐久数字 + 裂纹）
- *  - 宝藏（金色闪光框 + 金币图标）
- *  - 玩家（简洁的钻地机器人轮廓）
- *  - HUD：HP条、金币、当前深度、目标深度
+ *  - 8大功能水晶（绚丽彩色棱晶宝石 + 动态闪烁辉光）
+ *  - 4大即时宝藏（化石、古董、金块、钻石）与能量球
+ *  - 强力视觉特效：闪亮垂直激光光柱、地震波环形冲击波
+ *  - 玩家（简洁灵动的钻地机器人轮廓）
  */
 
 import {
-  COLS, ROWS, TILE_SIZE, SpecialType,
-  TILE_COLORS, ROCK_COLORS,
+  COLS, ROWS, TILE_SIZE, SpecialType, CrystalType, TreasureKind,
+  TILE_COLORS, ROCK_COLORS, CRYSTAL_METAS,
   type Tile,
 } from '../core/Types';
 import { GridEngine } from '../core/GridEngine';
@@ -54,6 +55,7 @@ export class CanvasRenderer {
 
     this.drawBackground(ctx);
     this.drawTiles(ctx);
+    this.drawEffects(ctx);
     this.drawPlayer(ctx);
     this.particles.render(ctx);
     this.drawFloatingTexts(ctx);
@@ -129,6 +131,7 @@ export class CanvasRenderer {
     const S = TILE_SIZE;
     const pad = 1;
     const inner = S - pad * 2;
+    const now = performance.now();
 
     ctx.save();
 
@@ -138,42 +141,40 @@ export class CanvasRenderer {
       // ── 彩色矿块（原版 4 色）──
       const colors = TILE_COLORS[kind as number];
 
-      // 主体
       ctx.fillStyle = colors.main;
       ctx.fillRect(x + pad, y + pad, inner, inner);
 
-      // 左上高光（亮斜边，对应原版像素高光）
+      // 左上高光
       ctx.fillStyle = colors.light;
-      ctx.fillRect(x + pad, y + pad, inner, 3);       // 顶
-      ctx.fillRect(x + pad, y + pad, 3, inner);       // 左
+      ctx.fillRect(x + pad, y + pad, inner, 3);
+      ctx.fillRect(x + pad, y + pad, 3, inner);
 
-      // 右下阴影（深色斜边）
+      // 右下阴影
       ctx.fillStyle = colors.dark;
-      ctx.fillRect(x + pad, y + S - pad - 3, inner, 3);  // 底
-      ctx.fillRect(x + S - pad - 3, y + pad, 3, inner);  // 右
+      ctx.fillRect(x + pad, y + S - pad - 3, inner, 3);
+      ctx.fillRect(x + S - pad - 3, y + pad, 3, inner);
 
       // 预警：金色外框
       if (tile.shakeWarning) {
-        const pulse = 0.5 + 0.5 * Math.sin(performance.now() * 0.018);
+        const pulse = 0.5 + 0.5 * Math.sin(now * 0.018);
         ctx.strokeStyle = `rgba(255, 220, 0, ${pulse})`;
         ctx.lineWidth = 3;
         ctx.strokeRect(x + 1, y + 1, S - 2, S - 2);
       }
 
     } else if (kind === SpecialType.ROCK) {
-      // ── 数字岩石（对应原版灰色岩石 + 耐久数字）──
+      // ── 数字岩石 ──
       const durIdx = Math.min(tile.durability - 1, ROCK_COLORS.length - 1);
       const rockColor = ROCK_COLORS[Math.max(0, durIdx)];
 
       ctx.fillStyle = rockColor;
       ctx.fillRect(x + pad, y + pad, inner, inner);
 
-      // 内嵌深色边框
       ctx.strokeStyle = 'rgba(0,0,0,0.5)';
       ctx.lineWidth = 1.5;
       ctx.strokeRect(x + 5, y + 5, S - 10, S - 10);
 
-      // 裂纹（随受损程度增多）
+      // 裂纹
       const dmg = tile.maxDurability - tile.durability;
       if (dmg >= 1) {
         ctx.strokeStyle = 'rgba(255,255,255,0.7)';
@@ -191,46 +192,161 @@ export class CanvasRenderer {
         ctx.lineTo(x + 34, y + 26);
         ctx.stroke();
       }
-      if (dmg >= 3) {
-        ctx.beginPath();
-        ctx.moveTo(x + 8, y + 30);
-        ctx.lineTo(x + 20, y + 38);
-        ctx.stroke();
-      }
 
-      // 耐久数字（原版显示 1-5）
+      // 耐久数字
       ctx.font = `bold ${S * 0.4}px monospace`;
       ctx.fillStyle = '#ffffff';
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
       ctx.fillText(`${tile.durability}`, x + S / 2, y + S / 2);
 
-    } else if (kind === SpecialType.TREASURE) {
-      // ── 宝藏（金色闪光）──
-      ctx.fillStyle = '#3d2d00';
+    } else if (kind === SpecialType.CRYSTAL) {
+      // ── 8大核心主动功能水晶 ──
+      const crystalType = tile.crystalType ?? CrystalType.RED;
+      const meta = CRYSTAL_METAS[crystalType];
+
+      // 底槽背景
+      ctx.fillStyle = '#11151f';
       ctx.fillRect(x + pad, y + pad, inner, inner);
 
-      // 金色边框闪烁
-      const glow = 0.6 + 0.4 * Math.sin(performance.now() * 0.015);
-      ctx.strokeStyle = `rgba(255, 215, 0, ${glow})`;
-      ctx.lineWidth = 3;
+      const pulse = 0.7 + 0.3 * Math.sin(now * 0.008 + x);
+      ctx.strokeStyle = meta.color;
+      ctx.lineWidth = 2;
       ctx.strokeRect(x + 3, y + 3, S - 6, S - 6);
 
-      // 金币图标
-      ctx.font = `${S * 0.5}px sans-serif`;
+      // 菱形宝石晶体
+      const cx = x + S / 2;
+      const cy = y + S / 2;
+      const r = S * 0.32;
+
+      ctx.save();
+      ctx.shadowColor = meta.color;
+      ctx.shadowBlur = 10 * pulse;
+      ctx.fillStyle = meta.color;
+      ctx.beginPath();
+      ctx.moveTo(cx, cy - r);
+      ctx.lineTo(cx + r * 0.85, cy);
+      ctx.lineTo(cx, cy + r);
+      ctx.lineTo(cx - r * 0.85, cy);
+      ctx.closePath();
+      ctx.fill();
+      ctx.restore();
+
+      // 水晶高光折射面
+      ctx.fillStyle = 'rgba(255, 255, 255, 0.65)';
+      ctx.beginPath();
+      ctx.moveTo(cx, cy - r);
+      ctx.lineTo(cx + r * 0.4, cy - r * 0.2);
+      ctx.lineTo(cx, cy);
+      ctx.lineTo(cx - r * 0.4, cy - r * 0.2);
+      ctx.closePath();
+      ctx.fill();
+
+      // 小图标/文字标示
+      ctx.font = '10px monospace';
+      ctx.fillStyle = '#ffffff';
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
-      ctx.fillText('💰', x + S / 2, y + S / 2 + 1);
+      ctx.fillText(meta.shortName, cx, cy + r * 0.2);
+
+    } else if (kind === SpecialType.TREASURE) {
+      // ── 即时宝藏与能量球 ──
+      ctx.fillStyle = '#161922';
+      ctx.fillRect(x + pad, y + pad, inner, inner);
+
+      const glow = 0.6 + 0.4 * Math.sin(now * 0.012 + y);
+      ctx.strokeStyle = `rgba(255, 215, 0, ${glow})`;
+      ctx.lineWidth = 2;
+      ctx.strokeRect(x + 3, y + 3, S - 6, S - 6);
+
+      const cx = x + S / 2;
+      const cy = y + S / 2;
+
+      if (tile.treasureKind === TreasureKind.ENERGY_ORB) {
+        // 即时能量水晶球（蓝光闪烁）
+        ctx.save();
+        ctx.shadowColor = '#00e5ff';
+        ctx.shadowBlur = 12 * glow;
+        ctx.fillStyle = '#00e5ff';
+        ctx.beginPath();
+        ctx.arc(cx, cy, S * 0.28, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.restore();
+
+        ctx.font = `${S * 0.4}px sans-serif`;
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText('⚡', cx, cy + 1);
+      } else {
+        // 金币与文物
+        let icon = '💰';
+        if (tile.treasureKind === TreasureKind.FOSSIL) icon = '🦴';
+        else if (tile.treasureKind === TreasureKind.ANTIQUE) icon = '🏺';
+        else if (tile.treasureKind === TreasureKind.DIAMOND) icon = '💎';
+
+        ctx.font = `${S * 0.5}px sans-serif`;
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText(icon, cx, cy + 1);
+      }
     }
 
     // 受击颤动
     if (tile.shakeTimer && tile.shakeTimer > 0) {
-      ctx.strokeStyle = 'rgba(255,255,255,0.6)';
+      ctx.strokeStyle = 'rgba(255,255,255,0.7)';
       ctx.lineWidth = 2;
       ctx.strokeRect(x + 1, y + 1, S - 2, S - 2);
     }
 
     ctx.restore();
+  }
+
+  // ── 绘制全屏法术特效（激光光柱、地震波） ──
+  private drawEffects(ctx: CanvasRenderingContext2D): void {
+    // 1. 闪亮水晶：垂直贯穿激光束
+    for (const laser of this.engine.activeLasers) {
+      const alpha = laser.timer / laser.maxTimer;
+      const x = laser.col * TILE_SIZE + TILE_SIZE / 2;
+      const startY = laser.startR * TILE_SIZE;
+      const endY = (laser.endR + 1) * TILE_SIZE;
+      const beamW = TILE_SIZE * 0.8;
+
+      ctx.save();
+      // 外层青色光晕
+      ctx.fillStyle = `rgba(0, 229, 255, ${0.45 * alpha})`;
+      ctx.fillRect(x - beamW / 2, startY, beamW, endY - startY);
+
+      // 内层亮白核心
+      ctx.fillStyle = `rgba(255, 255, 255, ${0.9 * alpha})`;
+      ctx.fillRect(x - beamW * 0.25, startY, beamW * 0.5, endY - startY);
+
+      // 顶部光圈
+      ctx.strokeStyle = `rgba(0, 229, 255, ${alpha})`;
+      ctx.lineWidth = 4;
+      ctx.beginPath();
+      ctx.arc(x, startY, beamW * 0.6, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.restore();
+    }
+
+    // 2. 震荡水晶：大范围地震波
+    for (const sw of this.engine.activeShockwaves) {
+      const alpha = sw.timer / sw.maxTimer;
+      ctx.save();
+      ctx.strokeStyle = `rgba(255, 145, 0, ${alpha * 0.85})`;
+      ctx.lineWidth = 6 * alpha;
+      ctx.beginPath();
+      ctx.arc(sw.x, sw.y, sw.radius, 0, Math.PI * 2);
+      ctx.stroke();
+
+      // 内圈辅波
+      ctx.strokeStyle = `rgba(255, 215, 0, ${alpha * 0.5})`;
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.arc(sw.x, sw.y, Math.max(0, sw.radius - 16), 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.restore();
+    }
   }
 
   // ── 目标深度指示线 ──
@@ -249,108 +365,75 @@ export class CanvasRenderer {
     ctx.moveTo(0, y);
     ctx.lineTo(worldW, y);
     ctx.stroke();
-    ctx.setLineDash([]);
 
-    ctx.fillStyle = 'rgba(255, 200, 0, 0.9)';
-    ctx.font = 'bold 12px monospace';
-    ctx.textBaseline = 'bottom';
-    ctx.fillText('▼ 目标深度', 8, y - 2);
+    ctx.fillStyle = '#ffc800';
+    ctx.font = 'bold 12px sans-serif';
+    ctx.textAlign = 'right';
+    ctx.fillText(`🚩 目标深度 ${this.playerCtrl.targetRow * 2}m`, worldW - 8, y - 6);
     ctx.restore();
   }
 
-  // ── 玩家渲染（钻地机器人，简洁风格） ──
+  // ── 绘制玩家实体 ──
   private drawPlayer(ctx: CanvasRenderingContext2D): void {
     const p = this.playerCtrl.state;
-    const px = p.x;
-    const py = p.y;
     const S = TILE_SIZE;
+    const cx = p.x + S / 2;
+    const cy = p.y + S / 2;
 
     ctx.save();
-    ctx.translate(px, py);
+    ctx.translate(cx, cy);
 
-    if (p.dead) {
-      // 死亡状态：红色闪烁
-      const blink = Math.floor(performance.now() / 100) % 2;
-      if (blink) {
-        ctx.fillStyle = 'rgba(255,0,0,0.6)';
-        ctx.fillRect(6, 6, S - 12, S - 12);
-      }
-      ctx.restore();
-      return;
-    }
+    let angle = 0;
+    if (p.facing === 'down')  angle = 0;
+    else if (p.facing === 'up')    angle = Math.PI;
+    else if (p.facing === 'left')  angle = Math.PI / 2;
+    else if (p.facing === 'right') angle = -Math.PI / 2;
+    ctx.rotate(angle);
 
-    // ── 机器人轮廓（简洁方形机器人，类似原版像素风）──
-    // 车体
-    ctx.fillStyle = '#1a3a5c';
-    ctx.fillRect(6, 14, S - 12, S - 18);
+    // 机器人机身
+    ctx.fillStyle = '#37474f';
+    ctx.fillRect(-S * 0.32, -S * 0.28, S * 0.64, S * 0.56);
 
-    // 车顶圆弧（驾驶舱）
-    ctx.fillStyle = '#2255aa';
+    ctx.strokeStyle = '#78909c';
+    ctx.lineWidth = 2;
+    ctx.strokeRect(-S * 0.32, -S * 0.28, S * 0.64, S * 0.56);
+
+    // 驾驶舱护罩（青色光芒）
+    ctx.fillStyle = '#00e5ff';
     ctx.beginPath();
-    ctx.arc(S / 2, 14, (S - 16) / 2, Math.PI, 0);
+    ctx.arc(0, -S * 0.05, S * 0.16, 0, Math.PI * 2);
     ctx.fill();
 
-    // 驾驶舱玻璃
-    ctx.fillStyle = '#7ecbff';
+    // 钻头（前方三角形）
+    const digOffset = p.isDigging ? (Math.sin(performance.now() * 0.06) > 0 ? 3 : -2) : 0;
+    ctx.fillStyle = '#ffd600';
     ctx.beginPath();
-    ctx.arc(S / 2, 14, (S - 20) / 2, Math.PI, 0);
+    ctx.moveTo(-S * 0.2, S * 0.28 + digOffset);
+    ctx.lineTo(S * 0.2,  S * 0.28 + digOffset);
+    ctx.lineTo(0,        S * 0.46 + digOffset);
+    ctx.closePath();
     ctx.fill();
 
-    // 灯（面向方向）
-    const faceRight = p.facing === 'right' || p.facing === 'down';
-    ctx.fillStyle = '#ffff88';
-    ctx.shadowColor = '#ffff00';
-    ctx.shadowBlur = 8;
-    ctx.beginPath();
-    ctx.arc(faceRight ? S - 10 : 10, S / 2 + 2, 3.5, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.shadowBlur = 0;
-
-    // 钻头（对应原版的方向性钻头）
-    ctx.strokeStyle = '#90caf9';
-    ctx.lineWidth = 3;
-    const drill = p.isDigging ? 12 : 8;
-    ctx.beginPath();
-    if (p.facing === 'right') {
-      ctx.moveTo(S - 10, S / 2 + 2);
-      ctx.lineTo(S - 10 + drill, S / 2 + 2);
-    } else if (p.facing === 'left') {
-      ctx.moveTo(10, S / 2 + 2);
-      ctx.lineTo(10 - drill, S / 2 + 2);
-    } else if (p.facing === 'down') {
-      ctx.moveTo(S / 2, S - 6);
-      ctx.lineTo(S / 2, S - 6 + drill);
-    } else {
-      ctx.moveTo(S / 2, 6);
-      ctx.lineTo(S / 2, 6 - drill);
-    }
+    ctx.strokeStyle = '#ff6f00';
+    ctx.lineWidth = 1.5;
     ctx.stroke();
-
-    // HP低时闪红
-    if (p.hp < 30) {
-      const blink = 0.5 + 0.5 * Math.sin(performance.now() * 0.02);
-      ctx.fillStyle = `rgba(255, 0, 0, ${blink * 0.4})`;
-      ctx.fillRect(6, 14, S - 12, S - 18);
-    }
 
     ctx.restore();
   }
 
-  // ── 浮动文字 ──
+  // ── 绘制浮动文字 ──
   private drawFloatingTexts(ctx: CanvasRenderingContext2D): void {
     ctx.save();
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'middle';
     for (const ft of this.engine.floatingTexts) {
       ctx.globalAlpha = ft.alpha;
       ctx.font = `bold ${ft.size}px monospace`;
       ctx.fillStyle = ft.color;
-      ctx.shadowColor = '#000';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.shadowColor = 'rgba(0,0,0,0.8)';
       ctx.shadowBlur = 4;
       ctx.fillText(ft.text, ft.x, ft.y);
     }
-    ctx.globalAlpha = 1;
-    ctx.shadowBlur = 0;
     ctx.restore();
   }
 }

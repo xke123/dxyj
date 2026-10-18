@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
-  <title>地心游记 — 核心玩法复刻</title>
+  <title>地心游记 — 核心玩法与道具系统</title>
   <link rel="stylesheet" href="/src/style.css" />
 </head>
 <body>
@@ -34,7 +34,20 @@
         <span class="hud-label">💰 金币</span>
         <span class="hud-val gold" id="coins-val">0</span>
       </div>
+
+      <!-- 背包容量统计 -->
+      <div class="hud-block bag-block">
+        <span class="hud-label">🎒 道具</span>
+        <span class="hud-val" id="bag-val">8/10</span>
+      </div>
     </header>
+
+    <!-- 水晶道具快捷栏（底部中央：支持触控点击与数字键 1~8 快速释放） -->
+    <div id="item-bar-container">
+      <div id="item-bar" class="item-bar">
+        <!-- 8个水晶槽由 main.ts 动态填充或更新 -->
+      </div>
+    </div>
 
     <!-- 通关/失败覆盖层 -->
     <div id="overlay" class="overlay-hidden">
@@ -48,18 +61,19 @@
     <!-- 虚拟方向键（移动端/触屏） -->
     <div id="touch-controls">
       <div class="dpad">
-        <button id="btn-up"    class="dpad-btn dpad-up">▲</button>
-        <button id="btn-left"  class="dpad-btn dpad-left">◀</button>
-        <button id="btn-dig"   class="dpad-btn dpad-center">⛏</button>
-        <button id="btn-right" class="dpad-btn dpad-right">▶</button>
-        <button id="btn-down"  class="dpad-btn dpad-down">▼</button>
+        <button id="btn-up"    class="dpad-btn dpad-up" aria-label="向上">▲</button>
+        <button id="btn-left"  class="dpad-btn dpad-left" aria-label="向左">◀</button>
+        <button id="btn-dig"   class="dpad-btn dpad-center" aria-label="挖掘">⛏</button>
+        <button id="btn-right" class="dpad-btn dpad-right" aria-label="向右">▶</button>
+        <button id="btn-down"  class="dpad-btn dpad-down" aria-label="向下">▼</button>
       </div>
     </div>
 
-    <!-- 键盘提示 -->
+    <!-- 键盘与操作提示 -->
     <div id="kb-hint">
-      <span class="kb">方向键/WASD</span> 移动 &nbsp;
-      <span class="kb">空格/J</span> 挖掘
+      <span class="kb">WASD/方向键</span> 移动 &nbsp;
+      <span class="kb">空格/J/5</span> 挖掘 &nbsp;
+      <span class="kb">数字 1~8</span> 快捷释放水晶
     </div>
   </div>
 

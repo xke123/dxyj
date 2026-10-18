@@ -46,7 +46,8 @@ body, html {
   justify-content: space-between;
   align-items: center;
   pointer-events: none;
-  gap: 12px;
+  gap: 10px;
+  flex-wrap: wrap;
 }
 
 .hud-block {
@@ -56,7 +57,7 @@ body, html {
   -webkit-backdrop-filter: blur(12px);
   border: 1px solid rgba(240, 246, 252, 0.12);
   border-radius: 12px;
-  padding: 10px 18px;
+  padding: 8px 16px;
   display: flex;
   align-items: center;
   gap: 10px;
@@ -99,7 +100,7 @@ body, html {
 
 /* HP 能量条 */
 .hp-block {
-  min-width: 240px;
+  min-width: 220px;
 }
 
 .hp-bar-bg {
@@ -130,6 +131,100 @@ body, html {
 @keyframes pulse-glow {
   0% { opacity: 0.8; }
   100% { opacity: 1; }
+}
+
+/* ================= 水晶道具快捷栏 (支持触控与键盘快捷键) ================= */
+#item-bar-container {
+  position: absolute;
+  bottom: 18px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 25;
+  pointer-events: auto;
+}
+
+.item-bar {
+  display: flex;
+  gap: 8px;
+  background: rgba(15, 23, 42, 0.85);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid rgba(240, 246, 252, 0.15);
+  border-radius: 16px;
+  padding: 8px 12px;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.7), inset 0 1px 0 rgba(255, 255, 255, 0.1);
+}
+
+.item-slot {
+  position: relative;
+  width: 52px;
+  height: 60px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  background: rgba(30, 41, 59, 0.6);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 10px;
+  cursor: pointer;
+  transition: all 0.15s cubic-bezier(0.16, 1, 0.3, 1);
+  touch-action: manipulation;
+}
+
+.item-slot:hover:not(.disabled) {
+  transform: translateY(-3px);
+  border-color: rgba(255, 255, 255, 0.4);
+  box-shadow: 0 6px 16px rgba(0, 0, 0, 0.5);
+}
+
+.item-slot:active:not(.disabled) {
+  transform: scale(0.92);
+}
+
+.item-slot.active {
+  border-color: var(--slot-color, #38bdf8);
+  box-shadow: 0 0 12px var(--slot-glow, rgba(56, 189, 248, 0.4));
+  background: rgba(30, 41, 59, 0.85);
+}
+
+.item-slot.disabled {
+  opacity: 0.32;
+  cursor: not-allowed;
+  filter: grayscale(0.5);
+}
+
+.item-key {
+  position: absolute;
+  top: 3px;
+  left: 5px;
+  font-size: 10px;
+  font-weight: 800;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  color: #94a3b8;
+}
+
+.item-icon {
+  font-size: 20px;
+  line-height: 1;
+  margin-top: 2px;
+}
+
+.item-name {
+  font-size: 9px;
+  color: #cbd5e1;
+  font-weight: 600;
+  margin-top: 3px;
+  white-space: nowrap;
+}
+
+.item-count {
+  position: absolute;
+  bottom: 2px;
+  right: 5px;
+  font-size: 11px;
+  font-weight: 800;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  color: #ffffff;
 }
 
 /* ================= 覆盖层（通关 / 死亡结算） ================= */
@@ -220,34 +315,39 @@ body, html {
 /* ================= 虚拟按键（触屏/移动端） ================= */
 #touch-controls {
   position: absolute;
-  bottom: 24px;
-  left: 24px;
+  bottom: 20px;
+  left: 20px;
   z-index: 20;
-  display: none; /* 默认在桌面端通过 CSS 媒体查询或 JS 激活 */
+  display: none;
 }
 
 @media (max-width: 900px), (pointer: coarse) {
   #touch-controls {
     display: block;
   }
+  #item-bar-container {
+    bottom: 90px;
+    left: 50%;
+    transform: translateX(-50%);
+  }
 }
 
 .dpad {
   position: relative;
-  width: 150px;
-  height: 150px;
+  width: 140px;
+  height: 140px;
 }
 
 .dpad-btn {
   position: absolute;
-  width: 46px;
-  height: 46px;
+  width: 44px;
+  height: 44px;
   background: rgba(33, 38, 45, 0.85);
   backdrop-filter: blur(8px);
   border: 1px solid rgba(240, 246, 252, 0.15);
   border-radius: 10px;
   color: #f0f6fc;
-  font-size: 20px;
+  font-size: 18px;
   font-weight: bold;
   display: flex;
   justify-content: center;
@@ -262,13 +362,13 @@ body, html {
   transform: scale(0.95);
 }
 
-.dpad-up    { top: 0; left: 52px; }
-.dpad-down  { bottom: 0; left: 52px; }
-.dpad-left  { top: 52px; left: 0; }
-.dpad-right { top: 52px; right: 0; }
+.dpad-up    { top: 0; left: 48px; }
+.dpad-down  { bottom: 0; left: 48px; }
+.dpad-left  { top: 48px; left: 0; }
+.dpad-right { top: 48px; right: 0; }
 .dpad-center {
-  top: 52px;
-  left: 52px;
+  top: 48px;
+  left: 48px;
   background: rgba(56, 139, 253, 0.3);
   border-color: rgba(56, 139, 253, 0.5);
 }
@@ -279,12 +379,12 @@ body, html {
   bottom: 20px;
   right: 20px;
   z-index: 10;
-  background: rgba(22, 27, 34, 0.75);
+  background: rgba(22, 27, 34, 0.8);
   backdrop-filter: blur(10px);
   border: 1px solid rgba(240, 246, 252, 0.1);
   border-radius: 8px;
   padding: 8px 16px;
-  font-size: 13px;
+  font-size: 12px;
   color: #8b949e;
   pointer-events: none;
 }
@@ -295,25 +395,25 @@ body, html {
   padding: 2px 6px;
   border-radius: 4px;
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-  font-size: 12px;
+  font-size: 11px;
   font-weight: 600;
 }
 
-/* ================= 响应式调整 ================= */
+/* ================= 移动端小屏幕自适应 ================= */
 @media (max-width: 640px) {
   #game-hud {
-    top: 10px;
-    left: 10px;
-    right: 10px;
+    top: 8px;
+    left: 8px;
+    right: 8px;
     gap: 6px;
   }
   .hud-block {
-    padding: 6px 10px;
+    padding: 5px 8px;
     border-radius: 8px;
-    gap: 6px;
+    gap: 5px;
   }
   .hp-block {
-    min-width: 140px;
+    min-width: 120px;
   }
   .hud-label {
     font-size: 11px;
@@ -323,5 +423,25 @@ body, html {
   }
   #kb-hint {
     display: none;
+  }
+  .item-bar {
+    gap: 4px;
+    padding: 6px 8px;
+  }
+  .item-slot {
+    width: 38px;
+    height: 48px;
+  }
+  .item-icon {
+    font-size: 15px;
+  }
+  .item-name {
+    display: none;
+  }
+  .item-key {
+    font-size: 9px;
+  }
+  .item-count {
+    font-size: 10px;
   }
 }

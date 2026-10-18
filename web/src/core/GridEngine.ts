@@ -1,57 +1,24 @@
 /**
- * GridEngine.ts — 原版《地心游记》核心网格引擎（现代宽屏版）
+ * GridEngine.ts — 原版《地心游记》核心网格引擎（宝藏与水晶道具全功能版）
  *
  * 严格对标 b.java 的以下方法：
- *  - generateWorld()   ← F() 地图卷轴生成
+ *  - generateWorld()   ← F() 地图卷轴生成 + 宝藏水晶二阶投掷漏斗算法
  *  - floodFill()       ← s(i,j) 四向递归连通消除
  *  - hitRock()         ← c(i,j) 岩石耐久步进
  *  - updatePhysics()   ← ax() 预警+下落状态机
- *  - scrollDown()      ← F() 地图向上卷动（玩家下潜一行）
+ *  - 8大功能水晶法术   ← s(color), R(), j(), at(), b(20)
  */
 
 import {
   COLS, ROWS, TILE_SIZE,
-  TileColor, SpecialType,
+  TileColor, SpecialType, CrystalType, TreasureKind,
   TILE_COLORS,
   type Tile, type TileKind, type FloatingText,
+  type ActiveLaser, type ActiveShockwave,
 } from './Types';
 import { ParticleSystem } from '../render/ParticleSystem';
 import { SoundEffects } from '../audio/SoundEffects';
 import { Camera } from '../render/Camera';
-
-// 生成一行新地质内容（原版 F() 在 cl 增加时向 cc[26] 填充新行）
-function generateRow(depth: number): Tile[] {
-  const row: Tile[] = [];
-  const colors = [TileColor.RED, TileColor.YELLOW, TileColor.BLUE, TileColor.GREEN];
-
-  // 岩石出现率随深度增加
-  const rockChance = 0.04 + depth * 0.0006;
-  const rockMaxDur = Math.min(5, 1 + Math.floor(depth * 0.05));
-
-  for (let c = 0; c < COLS; c++) {
-    const prev = c > 0 ? row[c - 1] : null;
-
-    // 8邻域互斥：避免岩石紧贴
-    const hasAdjacentRock = prev && prev.kind === SpecialType.ROCK;
-
-    if (!hasAdjacentRock && Math.random() < rockChance) {
-      // 数字岩石
-      const dur = Math.ceil(Math.random() * rockMaxDur);
-      row.push(makeRock(dur));
-    } else {
-      // 彩色矿块，带邻接继承概率（左22%，上38%近似）
-      let color: TileColor;
-      const r = Math.random();
-      if (prev && isColor(prev.kind) && r < 0.22) {
-        color = prev.kind as TileColor;
-      } else {
-        color = colors[Math.floor(Math.random() * 4)];
-      }
-      row.push(makeColorTile(color));
-    }
-  }
-  return row;
-}
 
 function isColor(k: TileKind): boolean {
   return k >= 0 && k <= 3;
@@ -84,14 +51,95 @@ function makeEmpty(): Tile {
   };
 }
 
-function makeTreasure(coins: number): Tile {
+function makeCrystalTile(crystalType: CrystalType): Tile {
+  return {
+    kind: SpecialType.CRYSTAL, durability: 1, maxDurability: 1,
+    shakeWarning: false, shakeTimer: 0,
+    shakeVisualX: 0, shakeVisualY: 0,
+    falling: false, fallYOffset: 0,
+    crystalType,
+  };
+}
+
+function makeTreasureTile(treasureKind: TreasureKind, coins: number): Tile {
   return {
     kind: SpecialType.TREASURE, durability: 1, maxDurability: 1,
     shakeWarning: false, shakeTimer: 0,
     shakeVisualX: 0, shakeVisualY: 0,
     falling: false, fallYOffset: 0,
+    treasureKind,
     coins,
   };
+}
+
+// ── 生成一行新地质内容，并按照原版两阶段漏斗概率嵌入宝物 ──
+function generateRow(depth: number): Tile[] {
+  const row: Tile[] = [];
+  const colors = [TileColor.RED, TileColor.YELLOW, TileColor.BLUE, TileColor.GREEN];
+
+  // 岩石出现率随深度增加
+  const rockChance = 0.04 + depth * 0.0006;
+  const rockMaxDur = Math.min(5, 1 + Math.floor(depth * 0.05));
+
+  for (let c = 0; c < COLS; c++) {
+    const prev = c > 0 ? row[c - 1] : null;
+    const hasAdjacentRock = prev && prev.kind === SpecialType.ROCK;
+
+    if (!hasAdjacentRock && Math.random() < rockChance) {
+      const dur = Math.ceil(Math.random() * rockMaxDur);
+      row.push(makeRock(dur));
+    } else {
+      let color: TileColor;
+      const r = Math.random();
+      if (prev && isColor(prev.kind) && r < 0.22) {
+        color = prev.kind as TileColor;
+      } else {
+        color = colors[Math.floor(Math.random() * 4)];
+      }
+      row.push(makeColorTile(color));
+    }
+  }
+
+  // ── 对标原版 b.java:2807-2828 宝藏与水晶嵌入算法 ──
+  // 在 18 列宽屏中，每行投掷 2 次候选嵌入
+  for (let roll = 0; roll < 2; roll++) {
+    const bG = Math.floor(Math.random() * 8); // 0~7
+    if ((bG & 1) === 0) { // 50% 基础概率进入掉落轮
+      const iNextInt = Math.floor(Math.random() * 32) + 1; // 1 ~ 32
+      const targetCol = Math.floor(Math.random() * COLS);
+
+      if (iNextInt <= 3) {
+        // 法术水晶 (9~16)
+        let crystalId = Math.floor(Math.random() * 8); // 0~7 (CrystalType)
+        // 原版抑制机制：能量蓝水晶二次投掷
+        if (crystalId === CrystalType.ENERGY_BLUE) {
+          crystalId = Math.floor(Math.random() * 8);
+        }
+        row[targetCol] = makeCrystalTile(crystalId as CrystalType);
+      } else if (iNextInt === 5 || iNextInt === 6) {
+        // 即时金币宝藏 (化石、古董、金块、钻石)
+        const treasureRoll = Math.floor(Math.random() * 4);
+        let kind: TreasureKind;
+        let coins: number;
+        switch (treasureRoll) {
+          case 0: kind = TreasureKind.FOSSIL; coins = 1000; break;
+          case 1: kind = TreasureKind.ANTIQUE; coins = 2000; break;
+          case 2: kind = TreasureKind.GOLD_BAR; coins = 1000; break;
+          default: kind = TreasureKind.DIAMOND; coins = 5000; break;
+        }
+        row[targetCol] = makeTreasureTile(kind, coins);
+      } else if (iNextInt === 7) {
+        // 即时能量水晶 (HP+20) 或能量蓝晶
+        if (Math.random() < 0.6) {
+          row[targetCol] = makeTreasureTile(TreasureKind.ENERGY_ORB, 0);
+        } else {
+          row[targetCol] = makeCrystalTile(CrystalType.ENERGY_BLUE);
+        }
+      }
+    }
+  }
+
+  return row;
 }
 
 // ============================================================
@@ -103,10 +151,12 @@ export class GridEngine {
   public audio: SoundEffects;
   public camera?: Camera;
 
-  // 已挖掘的绝对行深度（用于计算真实深度）
-  public scrolledRows: number = 0;
+  // 激光与地震特效
+  public activeLasers: ActiveLaser[] = [];
+  public activeShockwaves: ActiveShockwave[] = [];
 
-  private fallCooldown: number = 0;
+  // 已挖掘的绝对行深度
+  public scrolledRows: number = 0;
 
   constructor(particles: ParticleSystem, audio: SoundEffects) {
     this.particles = particles;
@@ -120,46 +170,29 @@ export class GridEngine {
   public buildInitialWorld(): void {
     this.grid = [];
     this.scrolledRows = 0;
+    this.activeLasers = [];
+    this.activeShockwaves = [];
 
-    // 顶部4行空白（起始区域）
+    // 顶部4行空白（起始安全区）
     for (let r = 0; r < 4; r++) {
       this.grid.push(Array.from({ length: COLS }, () => makeEmpty()));
     }
 
-    // 地下内容（第4行起填充矿石）
+    // 地下内容（第4行起填充矿石与宝藏）
     for (let r = 4; r < ROWS; r++) {
-      const row = generateRow(r - 4);
-      // 随机植入宝藏
-      if (Math.random() < 0.08) {
-        const col = Math.floor(Math.random() * COLS);
-        const coins = [1000, 1000, 2000, 5000][Math.floor(Math.random() * 4)];
-        row[col] = makeTreasure(coins);
-      }
-      this.grid.push(row);
+      this.grid.push(generateRow(r - 4));
     }
   }
 
   // ── 原版 F()：地图向上卷动一行（玩家下潜）──
-  // 在原版中，cc[0..25] = cc[1..26]，然后 cc[26] 填新行
-  // 在本版中，我们保持玩家在网格固定位置，视口跟随
-  // 此方法在 Camera 更新后由外部调用
   public scrollWorldDown(): void {
     this.scrolledRows++;
-    // 移除顶行，底部追加新行
     this.grid.shift();
     const depth = this.scrolledRows + ROWS;
-    const newRow = generateRow(depth);
-    // 随机植入宝藏
-    if (Math.random() < 0.08) {
-      const col = Math.floor(Math.random() * COLS);
-      const coins = [1000, 1000, 2000, 5000][Math.floor(Math.random() * 4)];
-      newRow[col] = makeTreasure(coins);
-    }
-    this.grid.push(newRow);
+    this.grid.push(generateRow(depth));
   }
 
   // ── 原版 s(i, j)：四向递归 Flood Fill 同色消除 ──
-  // 任意规模触发，无最小集群门槛
   public floodFill(startC: number, startR: number): Array<{ c: number; r: number }> {
     const tile = this.grid[startR]?.[startC];
     if (!tile || !isColor(tile.kind)) return [];
@@ -195,16 +228,14 @@ export class GridEngine {
   }
 
   // ── 原版 c(i, j)：岩石耐久步进 ──
-  // 返回是否被彻底击碎
   public hitRock(c: number, r: number): boolean {
     const tile = this.grid[r]?.[c];
     if (!tile || tile.kind !== SpecialType.ROCK) return false;
 
     tile.durability--;
-    tile.shakeTimer = 0.18; // 受击颤动
+    tile.shakeTimer = 0.18;
 
     if (tile.durability <= 0) {
-      // 岩石碎裂
       this.emitShatter(c, r, '#78909c', 10);
       this.grid[r][c] = makeEmpty();
       this.camera?.triggerShake(6, 0.18);
@@ -212,7 +243,6 @@ export class GridEngine {
       return true;
     }
 
-    // 还没碎
     this.emitShatter(c, r, '#b0bec5', 4);
     this.camera?.triggerShake(3, 0.12);
     this.audio.playDig();
@@ -228,13 +258,11 @@ export class GridEngine {
     const tile = this.grid[r][c];
     const colorInfo = TILE_COLORS[tile.kind as number];
 
-    // 消除所有连通方块
     for (const pos of cluster) {
       this.emitShatter(pos.c, pos.r, colorInfo.main, cluster.length > 4 ? 8 : 5);
       this.grid[pos.r][pos.c] = makeEmpty();
     }
 
-    // 视觉反馈
     const shakePower = Math.min(10, 2 + cluster.length * 0.6);
     this.camera?.triggerShake(shakePower, 0.18);
     this.audio.playShatter(cluster.length);
@@ -252,26 +280,159 @@ export class GridEngine {
     return { coins: 0, cluster: cluster.length };
   }
 
-  // ── 宝藏拾取 ──
-  public excavateTreasure(c: number, r: number): number {
-    const tile = this.grid[r]?.[c];
-    if (!tile || tile.kind !== SpecialType.TREASURE) return 0;
-
-    const coins = tile.coins ?? 1000;
-    this.grid[r][c] = makeEmpty();
-    this.emitShatter(c, r, '#ffd700', 12);
-    this.camera?.triggerShake(4, 0.15);
-    this.audio.playRelicFound();
-    this.addFloatingText(c * TILE_SIZE + TILE_SIZE / 2, r * TILE_SIZE - 10, `+${coins}`, '#ffd700', 20);
-    return coins;
+  // ── 收集宝藏或水晶 ──
+  public clearTile(c: number, r: number): void {
+    if (this.grid[r]?.[c]) {
+      this.grid[r][c] = makeEmpty();
+    }
   }
 
-  // ── 原版 ax()：物理状态机（重力下落） ──
-  public updatePhysics(dt: number, playerX?: number, playerY?: number, onCrush?: () => void): void {
+  // ============================================================
+  // 八大水晶法术技能实现（对标 b.java:528-595, 4353-4374）
+  // ============================================================
+
+  /**
+   * 1~4. 红/黄/蓝/绿水晶：清屏指定颜色的所有矿块（对标原版 s(i2)）
+   */
+  public clearColorTiles(color: TileColor, centerR: number): number {
+    let clearedCount = 0;
+    const startR = Math.max(0, centerR - 6);
+    const endR = Math.min(ROWS - 1, centerR + 12);
+    const colorInfo = TILE_COLORS[color];
+
+    for (let r = startR; r <= endR; r++) {
+      for (let c = 0; c < COLS; c++) {
+        if (this.grid[r][c].kind === color) {
+          this.emitShatter(c, r, colorInfo.main, 6);
+          this.grid[r][c] = makeEmpty();
+          clearedCount++;
+        }
+      }
+    }
+
+    if (clearedCount > 0) {
+      this.camera?.triggerShake(8, 0.25);
+      this.audio.playShatter(clearedCount);
+    }
+    return clearedCount;
+  }
+
+  /**
+   * 5. 黑色水晶：清屏当前视野内的所有数字岩石（对标原版 R()）
+   */
+  public clearRockTiles(centerR: number): number {
+    let clearedCount = 0;
+    const startR = Math.max(0, centerR - 6);
+    const endR = Math.min(ROWS - 1, centerR + 12);
+
+    for (let r = startR; r <= endR; r++) {
+      for (let c = 0; c < COLS; c++) {
+        if (this.grid[r][c].kind === SpecialType.ROCK) {
+          this.emitShatter(c, r, '#78909c', 8);
+          this.grid[r][c] = makeEmpty();
+          clearedCount++;
+        }
+      }
+    }
+
+    if (clearedCount > 0) {
+      this.camera?.triggerShake(12, 0.3);
+      this.audio.playShatter(clearedCount);
+    }
+    return clearedCount;
+  }
+
+  /**
+   * 6. 闪亮水晶：垂直向下强力激光贯穿14格深度（对标原版 j()）
+   */
+  public castLaser(col: number, playerR: number, range: number = 14): { col: number; startR: number; endR: number } {
+    const startR = playerR + 1;
+    const endR = Math.min(ROWS - 1, playerR + range);
+
+    for (let r = startR; r <= endR; r++) {
+      const tile = this.grid[r][col];
+      if (tile.kind === SpecialType.GOAL) break;
+
+      if (tile.kind !== SpecialType.EMPTY) {
+        this.emitShatter(col, r, '#00e5ff', 8);
+        this.grid[r][col] = makeEmpty();
+      }
+    }
+
+    // 记录激光视觉特效
+    this.activeLasers.push({
+      col,
+      startR,
+      endR,
+      timer: 0.35,
+      maxTimer: 0.35,
+    });
+
+    this.camera?.triggerShake(10, 0.25);
+    this.audio.playLaser();
+    return { col, startR, endR };
+  }
+
+  /**
+   * 7. 震荡水晶：以玩家为中心触发全向大地震爆破（对标原版 at()）
+   */
+  public castEarthquake(playerC: number, playerR: number, radius: number = 3): number {
+    let cleared = 0;
+    const minR = Math.max(0, playerR - radius);
+    const maxR = Math.min(ROWS - 1, playerR + radius);
+    const minC = Math.max(0, playerC - radius);
+    const maxC = Math.min(COLS - 1, playerC + radius);
+
+    for (let r = minR; r <= maxR; r++) {
+      for (let c = minC; c <= maxC; c++) {
+        const tile = this.grid[r][c];
+        if (tile.kind === SpecialType.EMPTY || tile.kind === SpecialType.GOAL) continue;
+
+        this.emitShatter(c, r, '#ff9100', 6);
+        this.grid[r][c] = makeEmpty();
+        cleared++;
+      }
+    }
+
+    // 记录地震波特效
+    this.activeShockwaves.push({
+      x: playerC * TILE_SIZE + TILE_SIZE / 2,
+      y: playerR * TILE_SIZE + TILE_SIZE / 2,
+      radius: TILE_SIZE,
+      maxRadius: (radius + 0.5) * TILE_SIZE,
+      timer: 0.45,
+      maxTimer: 0.45,
+    });
+
+    this.camera?.triggerShake(14, 0.35);
+    this.audio.playExplosion();
+    return cleared;
+  }
+
+  // ── 原版 ax()：物理状态机（重力下落与特效更新） ──
+  public updatePhysics(dt: number, _playerX?: number, _playerY?: number, _onCrush?: () => void): void {
     const timeNow = performance.now();
 
-    // ── 阶段1：扫描悬空方块，启动预警 ──
-    // 简化版承重：只要下方是空的非最底行，就是悬空
+    // 更新激光特效计时
+    for (let i = this.activeLasers.length - 1; i >= 0; i--) {
+      this.activeLasers[i].timer -= dt;
+      if (this.activeLasers[i].timer <= 0) {
+        this.activeLasers.splice(i, 1);
+      }
+    }
+
+    // 更新地震冲击波特效
+    for (let i = this.activeShockwaves.length - 1; i >= 0; i--) {
+      const sw = this.activeShockwaves[i];
+      sw.timer -= dt;
+      const progress = 1 - (sw.timer / sw.maxTimer);
+      sw.radius = TILE_SIZE + progress * (sw.maxRadius - TILE_SIZE);
+      if (sw.timer <= 0) {
+        this.activeShockwaves.splice(i, 1);
+      }
+    }
+
+    // 阶段1：扫描悬空方块，启动预警
     for (let r = ROWS - 2; r >= 0; r--) {
       for (let c = 0; c < COLS; c++) {
         const tile = this.grid[r][c];
@@ -280,14 +441,13 @@ export class GridEngine {
 
         const below = this.grid[r + 1][c];
         if (below.kind === SpecialType.EMPTY) {
-          // 启动预警（对应原版 ax() h 字段）
           tile.shakeWarning = true;
           tile.shakeTimer = 0.42;
         }
       }
     }
 
-    // ── 阶段2：更新预警颤动 ──
+    // 阶段2：更新预警颤动
     for (let r = 0; r < ROWS; r++) {
       for (let c = 0; c < COLS; c++) {
         const tile = this.grid[r][c];
@@ -295,7 +455,6 @@ export class GridEngine {
 
         if (tile.shakeWarning) {
           tile.shakeTimer -= dt;
-          // 左右高频颤动（对应原版 ax() 中的视觉偏移）
           tile.shakeVisualX = Math.sin(timeNow * 0.05 + c + r) > 0 ? 2.5 : -2.5;
           tile.shakeVisualY = Math.cos(timeNow * 0.07 + c) > 0 ? 0.8 : -0.8;
 
@@ -310,69 +469,59 @@ export class GridEngine {
           tile.shakeVisualY = 0;
         }
 
-        // 平滑插值恢复 fallYOffset
         if (tile.fallYOffset < 0) {
           tile.fallYOffset = Math.min(0, tile.fallYOffset + 280 * dt);
         }
       }
     }
 
-    // ── 阶段3：下落推进（每0.1s步进一格，对应原版 ax() 中4帧一格）──
-    this.fallCooldown -= dt;
-    if (this.fallCooldown <= 0) {
-      this.fallCooldown = 0.1;
-
+    // 阶段3：下落推进
+    for (let r = ROWS - 2; r >= 0; r--) {
       for (let c = 0; c < COLS; c++) {
-        for (let r = ROWS - 2; r >= 0; r--) {
-          const tile = this.grid[r][c];
-          if (tile.kind === SpecialType.EMPTY || !tile.falling) continue;
+        const tile = this.grid[r][c];
+        if (!tile.falling) continue;
 
-          const below = this.grid[r + 1][c];
-          if (below.kind === SpecialType.EMPTY) {
-            // 下落一格（对应原版 cc[i2+1][i3].a(cc[i2][i3])）
-            tile.fallYOffset = -TILE_SIZE;
-            this.grid[r + 1][c] = tile;
-            this.grid[r][c] = makeEmpty();
-
-            // 砸到玩家判定（对应原版 bL.x==r+1 && bL.c==c）
-            if (playerX !== undefined && playerY !== undefined) {
-              if (c === playerX && r + 1 === playerY) {
-                onCrush?.();
-              }
-            }
-          } else {
-            // 落地停止（对应原版 a=false, d=true）
-            tile.falling = false;
-            tile.fallYOffset = 0;
-          }
+        const below = this.grid[r + 1][c];
+        if (below.kind === SpecialType.EMPTY) {
+          this.grid[r + 1][c] = {
+            ...tile,
+            falling: true,
+            shakeWarning: false,
+            fallYOffset: -TILE_SIZE,
+          };
+          this.grid[r][c] = makeEmpty();
+        } else {
+          tile.falling = false;
+          tile.fallYOffset = 0;
+          this.camera?.triggerShake(1.5, 0.08);
         }
       }
     }
   }
 
-  // ── getTileColor（渲染用） ──
-  public getTileColor(kind: TileKind): string {
-    if (isColor(kind)) return TILE_COLORS[kind as number]?.main ?? '#888';
-    if (kind === SpecialType.ROCK) return '#607d8b';
-    if (kind === SpecialType.TREASURE) return '#ffd700';
-    return 'transparent';
+  public emitShatter(col: number, row: number, color: string, count = 8): void {
+    const wx = col * TILE_SIZE + TILE_SIZE / 2;
+    const wy = row * TILE_SIZE + TILE_SIZE / 2;
+    this.particles.emitBlockShatter(wx, wy, color, count);
   }
 
-  // ── 粒子与浮动文字辅助 ──
-  private emitShatter(c: number, r: number, color: string, count: number): void {
-    this.particles.emitBlockShatter(c * TILE_SIZE + TILE_SIZE / 2, r * TILE_SIZE + TILE_SIZE / 2, color, count);
-  }
-
-  public addFloatingText(x: number, y: number, text: string, color: string, size: number): void {
-    this.floatingTexts.push({ x, y, text, color, size, alpha: 1, life: 1.2 });
+  public addFloatingText(x: number, y: number, text: string, color: string, size = 18): void {
+    this.floatingTexts.push({
+      x, y, text, color, size,
+      alpha: 1.0,
+      life: 0.85,
+    });
   }
 
   public updateFloatingTexts(dt: number): void {
-    for (const ft of this.floatingTexts) {
+    for (let i = this.floatingTexts.length - 1; i >= 0; i--) {
+      const ft = this.floatingTexts[i];
       ft.life -= dt;
-      ft.y -= 28 * dt;
-      ft.alpha = Math.max(0, ft.life / 1.2);
+      ft.y -= 38 * dt;
+      ft.alpha = Math.max(0, ft.life / 0.85);
+      if (ft.life <= 0) {
+        this.floatingTexts.splice(i, 1);
+      }
     }
-    this.floatingTexts = this.floatingTexts.filter(ft => ft.life > 0);
   }
 }
