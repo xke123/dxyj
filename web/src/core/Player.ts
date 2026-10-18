@@ -1,221 +1,218 @@
+/**
+ * Player.ts — 原版钻地机器人控制器
+ *
+ * 对标 e.java (机器人实体) + b.java W()/u() (按键挖掘逻辑):
+ *  - HP (e.I) + MaxHP (e.J=100) + Power (e.j=10) + Coins (e.C)
+ *  - 每次挖掘扣1点HP（原版每步扣能量）
+ *  - HP=0 → 触发失败（传送回地面）
+ *  - 移动只能到空格，挖掘才能穿过矿块
+ *  - 重力：脚下空了自动下落
+ */
+
 import {
-  COLS,
-  ROWS,
-  TILE_SIZE,
-  TileType,
-  type Player,
-  type RelicInfo,
+  COLS, ROWS, TILE_SIZE, SpecialType,
+  type PlayerState,
 } from './Types';
 import { GridEngine } from './GridEngine';
 
 export class PlayerController {
-  public player: Player;
-  private gridEngine: GridEngine;
-  private moveSpeed: number = 0.28; // 平滑移动插值速度
-  private fallCooldown: number = 0;
+  public state: PlayerState;
+  private engine: GridEngine;
+  private moveSpeed = 0.25;   // 平滑插值速度
+  private fallCooldown = 0;
+  private onCoinCollect?: (coins: number) => void;
+  private onDead?: () => void;
+  private onWin?: () => void;
 
-  constructor(gridEngine: GridEngine) {
-    this.gridEngine = gridEngine;
+  // 目标行（到达此行通关，对应原版 bn）
+  public targetRow: number;
 
-    // 初始降落在第 3 行入口空洞上方
-    const startCol = 8;
+  constructor(engine: GridEngine, targetRow: number) {
+    this.engine = engine;
+    this.targetRow = targetRow;
+
+    const startCol = Math.floor(COLS / 2);
     const startRow = 2;
 
-    this.player = {
+    this.state = {
       gridX: startCol,
       gridY: startRow,
       x: startCol * TILE_SIZE,
       y: startRow * TILE_SIZE,
       targetX: startCol * TILE_SIZE,
       targetY: startRow * TILE_SIZE,
+      hp: 100,
+      maxHp: 100,
+      power: 10,
+      coins: 0,
+      sessionCoins: 0,
       facing: 'down',
-      stamina: 100,
-      maxStamina: 100,
-      depth: 0,
       isDigging: false,
       digAnimTimer: 0,
-      comboCount: 0,
-      inventory: [],
+      depth: 0,
+      targetDepth: targetRow * 2,
+      won: false,
+      dead: false,
     };
   }
 
-  // 移动与攀爬单格方块物理
+  public setCallbacks(
+    onCoinCollect: (coins: number) => void,
+    onDead: () => void,
+    onWin: () => void
+  ): void {
+    this.onCoinCollect = onCoinCollect;
+    this.onDead = onDead;
+    this.onWin = onWin;
+  }
+
+  // ── 原版 u() 方向移动逻辑 ──
   public tryMove(dirX: number, dirY: number): boolean {
-    if (this.player.isDigging) return false;
+    if (this.state.isDigging || this.state.dead || this.state.won) return false;
 
-    // 更新主角朝向
-    if (dirX > 0) this.player.facing = 'right';
-    else if (dirX < 0) this.player.facing = 'left';
-    else if (dirY > 0) this.player.facing = 'down';
-    else if (dirY < 0) this.player.facing = 'up';
+    // 更新朝向（原版 y 字段）
+    if (dirX > 0) this.state.facing = 'right';
+    else if (dirX < 0) this.state.facing = 'left';
+    else if (dirY > 0) this.state.facing = 'down';
+    else if (dirY < 0) this.state.facing = 'up';
 
-    const targetGridX = this.player.gridX + dirX;
-    const targetGridY = this.player.gridY + dirY;
+    const nx = this.state.gridX + dirX;
+    const ny = this.state.gridY + dirY;
 
-    if (targetGridX < 0 || targetGridX >= COLS || targetGridY < 0 || targetGridY >= ROWS) {
-      return false;
+    if (nx < 0 || nx >= COLS || ny < 0 || ny >= ROWS) return false;
+
+    const targetTile = this.engine.grid[ny]?.[nx];
+    if (!targetTile) return false;
+
+    if (targetTile.kind === SpecialType.EMPTY) {
+      // 空格直接走过去
+      this.moveTo(nx, ny);
+      return true;
     }
 
-    const targetTile = this.gridEngine.grid[targetGridY][targetGridX];
+    if (targetTile.kind === SpecialType.TREASURE) {
+      // 拾取宝藏
+      const coins = this.engine.excavateTreasure(nx, ny);
+      this.state.sessionCoins += coins;
+      this.state.coins += coins;
+      this.onCoinCollect?.(coins);
+      this.moveTo(nx, ny);
+      return true;
+    }
 
-    // 情况 A：水平方向移动
-    if (dirX !== 0 && dirY === 0) {
-      // 1. 如果前方是平地（空位），直接走过去
-      if (targetTile.type === TileType.EMPTY) {
-        this.player.gridX = targetGridX;
-        this.player.targetX = targetGridX * TILE_SIZE;
-        this.updateDepth();
-        return true;
+    // 有矿块，触发挖掘（不移动）
+    return this.dig(nx, ny);
+  }
+
+  // ── 主动挖掘面向方向（5键/空格） ──
+  public digFacing(): boolean {
+    if (this.state.dead || this.state.won) return false;
+    let tx = this.state.gridX;
+    let ty = this.state.gridY;
+    if (this.state.facing === 'left') tx--;
+    else if (this.state.facing === 'right') tx++;
+    else if (this.state.facing === 'down') ty++;
+    else if (this.state.facing === 'up') ty--;
+    return this.dig(tx, ty);
+  }
+
+  // ── 挖掘核心（对应原版 W() 按键处理 + s()/c()） ──
+  public dig(gx: number, gy: number): boolean {
+    if (gx < 0 || gx >= COLS || gy < 0 || gy >= ROWS) return false;
+
+    const tile = this.engine.grid[gy]?.[gx];
+    if (!tile || tile.kind === SpecialType.EMPTY) return false;
+
+    // 扣HP（原版每次挖掘 bL.I--）
+    this.consumeHp(1);
+
+    // 挖掘动作动画
+    this.state.isDigging = true;
+    this.state.digAnimTimer = 0.14;
+
+    if (tile.kind === SpecialType.ROCK) {
+      // 数字岩石：步进耐久（原版 c(i,j)）
+      this.engine.hitRock(gx, gy);
+    } else if (tile.kind >= 0 && tile.kind <= 3) {
+      // 彩色方块：Flood Fill 消除（原版 s(i,j)）
+      this.engine.excavateColor(gx, gy);
+    } else if (tile.kind === SpecialType.TREASURE) {
+      const coins = this.engine.excavateTreasure(gx, gy);
+      this.state.sessionCoins += coins;
+      this.state.coins += coins;
+      this.onCoinCollect?.(coins);
+    }
+
+    return true;
+  }
+
+  // ── 落石砸伤（对应原版 bL.G = true + aa() 自救） ──
+  public onCrush(): void {
+    this.consumeHp(10);  // 对应原版 bL.a(7) + 3×bL.a(1)
+    this.engine.addFloatingText(
+      this.state.x + TILE_SIZE / 2,
+      this.state.y - 12,
+      '💥 -10',
+      '#ff1744',
+      18
+    );
+    this.engine.camera?.triggerShake(8, 0.22);
+  }
+
+  // ── 移动到目标格 ──
+  private moveTo(gx: number, gy: number): void {
+    this.state.gridX = gx;
+    this.state.gridY = gy;
+    this.state.targetX = gx * TILE_SIZE;
+    this.state.targetY = gy * TILE_SIZE;
+    this.state.depth = Math.max(0, (gy + this.engine.scrolledRows - 4) * 2);
+  }
+
+  // ── HP 消耗，归零触发失败 ──
+  private consumeHp(amount: number): void {
+    this.state.hp = Math.max(0, this.state.hp - amount);
+    if (this.state.hp <= 0 && !this.state.dead && !this.state.won) {
+      this.state.dead = true;
+      this.onDead?.();
+    }
+  }
+
+  // ── 每帧更新 ──
+  public update(dt: number): void {
+    if (this.state.dead || this.state.won) return;
+
+    // 平滑移动插值
+    this.state.x += (this.state.targetX - this.state.x) * this.moveSpeed;
+    this.state.y += (this.state.targetY - this.state.y) * this.moveSpeed;
+
+    // 挖掘动画计时
+    if (this.state.digAnimTimer > 0) {
+      this.state.digAnimTimer -= dt;
+      if (this.state.digAnimTimer <= 0) {
+        this.state.isDigging = false;
       }
+    }
 
-      // 2. 如果前方有 1 个方块阻挡，但该方块上方为空位，允许角色直接“跨步登顶”
-      const aboveTargetY = targetGridY - 1;
-      const aboveCurrentY = this.player.gridY - 1;
-      if (aboveTargetY >= 0 && aboveCurrentY >= 0) {
-        const aboveTargetTile = this.gridEngine.grid[aboveTargetY][targetGridX];
-        const aboveCurrentTile = this.gridEngine.grid[aboveCurrentY][this.player.gridX];
-
-        if (aboveTargetTile.type === TileType.EMPTY && aboveCurrentTile.type === TileType.EMPTY) {
-          this.player.gridX = targetGridX;
-          this.player.gridY = aboveTargetY;
-          this.player.targetX = targetGridX * TILE_SIZE;
-          this.player.targetY = aboveTargetY * TILE_SIZE;
-          this.updateDepth();
-          return true;
+    // 重力：脚下空了就下落（对应原版 bL.x++ 重力下落逻辑）
+    this.fallCooldown -= dt;
+    if (this.fallCooldown <= 0) {
+      const belowY = this.state.gridY + 1;
+      if (belowY < ROWS) {
+        const below = this.engine.grid[belowY]?.[this.state.gridX];
+        if (below && below.kind === SpecialType.EMPTY) {
+          this.moveTo(this.state.gridX, belowY);
+          this.fallCooldown = 0.06;
         }
       }
-
-      // 3. 面对多层高墙时顺势横向挖掘
-      return this.dig(targetGridX, targetGridY);
     }
 
-    // 情况 B：向下移动
-    if (dirY > 0) {
-      if (targetTile.type === TileType.EMPTY) {
-        this.player.gridY = targetGridY;
-        this.player.targetY = targetGridY * TILE_SIZE;
-        this.updateDepth();
-        return true;
-      }
-      return this.dig(targetGridX, targetGridY);
+    // 深度更新
+    this.state.depth = Math.max(0, (this.state.gridY + this.engine.scrolledRows - 4) * 2);
+
+    // 胜利判定：到达目标行
+    if (this.state.gridY + this.engine.scrolledRows >= this.targetRow && !this.state.won) {
+      this.state.won = true;
+      this.onWin?.();
     }
-
-    // 情况 C：向上移动
-    if (dirY < 0) {
-      if (targetTile.type === TileType.EMPTY) {
-        this.player.gridY = targetGridY;
-        this.player.targetY = targetGridY * TILE_SIZE;
-        this.updateDepth();
-        return true;
-      }
-      return this.dig(targetGridX, targetGridY);
-    }
-
-    return false;
-  }
-
-  // 主动挖掘（面向的方向）
-  public digFacing(): boolean {
-    let targetX = this.player.gridX;
-    let targetY = this.player.gridY;
-
-    if (this.player.facing === 'left') targetX--;
-    else if (this.player.facing === 'right') targetX++;
-    else if (this.player.facing === 'down') targetY++;
-    else if (this.player.facing === 'up') targetY--;
-
-    return this.dig(targetX, targetY);
-  }
-
-  public dig(gridX: number, gridY: number): boolean {
-    if (gridX < 0 || gridX >= COLS || gridY < 0 || gridY >= ROWS) return false;
-    if (this.player.stamina <= 0) {
-      this.gridEngine.addFloatingText(this.player.x, this.player.y, '体温过低，体力耗尽!', '#ff4444', 16);
-      return false;
-    }
-
-    const targetTile = this.gridEngine.grid[gridY][gridX];
-    if (targetTile.type === TileType.EMPTY) return false;
-
-    // 触发挖掘动作
-    this.player.isDigging = true;
-    this.player.digAnimTimer = 0.16;
-    this.player.stamina = Math.max(0, this.player.stamina - 1);
-
-    const result = this.gridEngine.excavate(gridX, gridY, (relic: RelicInfo) => {
-      this.collectRelic(relic);
-    });
-
-    if (result.success && result.combo > 1) {
-      this.player.comboCount += result.combo;
-      this.player.stamina = Math.min(
-        this.player.maxStamina,
-        this.player.stamina + Math.floor(result.combo * 0.5)
-      );
-    }
-
-    return result.success;
-  }
-
-  public collectRelic(relic: RelicInfo): void {
-    const existing = this.player.inventory.find(i => i.relic.id === relic.id);
-    if (existing) {
-      existing.count++;
-    } else {
-      this.player.inventory.push({
-        relic,
-        count: 1,
-        discoveredAtDepth: Math.floor(this.player.depth),
-      });
-    }
-  }
-
-  /**
-   * 对应原版 b.java:2354 落石砸伤机制（Crush Hazard）：
-   * 对应原版 b.java:2354、b.java:332-355 与 b.java:812-840 aa() 落石砸伤自救机制：
-   * 1. 扣减 10 点体能/体温 (对应原版 bL.a(7) + 3 次 bL.a(1))；
-   * 2. 执行 aa() 解困爆破：以角色为中心的 3 列宽（col-1, col, col+1）并覆盖角色所在格及正上方 3x2 范围的落石瞬间震碎；
-   * 3. 伴随碎石爆炸粒子、重响与镜头强震，彻底防止角色被活埋！
-   */
-  public onCrushedByRock(): void {
-    this.player.stamina = Math.max(0, this.player.stamina - 10);
-    this.gridEngine.triggerCrushBlast(this.player.gridX, this.player.gridY);
-    this.gridEngine.addFloatingText(
-      this.player.x + TILE_SIZE / 2,
-      this.player.y - 12,
-      '💥 遭落石砸伤! -10 体能 (震爆上方落石)',
-      '#ff1744',
-      17
-    );
-    this.updateDepth();
-  }
-
-  public update(dt: number): void {
-    this.player.x += (this.player.targetX - this.player.x) * this.moveSpeed;
-    this.player.y += (this.player.targetY - this.player.y) * this.moveSpeed;
-
-    if (this.player.digAnimTimer > 0) {
-      this.player.digAnimTimer -= dt;
-      if (this.player.digAnimTimer <= 0) {
-        this.player.isDigging = false;
-      }
-    }
-
-    // 重力检测：主角稳稳站在脚下方块上
-    this.fallCooldown -= dt;
-    const belowY = this.player.gridY + 1;
-    if (belowY < ROWS) {
-      const belowTile = this.gridEngine.grid[belowY][this.player.gridX];
-      if (belowTile.type === TileType.EMPTY && this.fallCooldown <= 0) {
-        this.player.gridY = belowY;
-        this.player.targetY = belowY * TILE_SIZE;
-        this.fallCooldown = 0.08;
-        this.updateDepth();
-      }
-    }
-  }
-
-  private updateDepth(): void {
-    this.player.depth = Math.max(0, (this.player.gridY - 3) * 1.2);
   }
 }
