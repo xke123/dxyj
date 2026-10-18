@@ -1,0 +1,112 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+    <title>苍白纪元：地心破晓 | 核心玩法预览</title>
+    <link rel="stylesheet" href="/src/style.css" />
+  </head>
+  <body>
+    <div id="game-app">
+      <!-- 游戏主视口画布 -->
+      <canvas id="game-canvas"></canvas>
+
+      <!-- 顶部 HUD 状态栏 -->
+      <header id="game-hud">
+        <div class="hud-left">
+          <div class="hud-badge location-badge">
+            <span class="icon">📍</span>
+            <div class="info">
+              <span class="label">勘探坐标</span>
+              <span class="val" id="location-name">未知冰原盲区（待推理）</span>
+            </div>
+          </div>
+          <div class="hud-badge depth-badge">
+            <span class="icon">⛏️</span>
+            <div class="info">
+              <span class="label">挖掘深度</span>
+              <span class="val highlight" id="depth-val">0.0 米</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="hud-center">
+          <div class="stamina-card">
+            <div class="stamina-header">
+              <span>🔥 探险者体温与体能</span>
+              <span id="stamina-text">100%</span>
+            </div>
+            <div class="progress-bar-bg">
+              <div class="progress-bar-fill" id="stamina-fill"></div>
+            </div>
+          </div>
+        </div>
+
+        <div class="hud-right">
+          <button id="btn-inventory" class="hud-btn" title="查看出土物证与案情线索">
+            <span class="btn-icon">📜</span>
+            <span class="btn-text">摸金笔记与物证 (<span id="relic-count">0</span>)</span>
+          </button>
+        </div>
+      </header>
+
+      <!-- 底部快捷提示与触控虚拟手柄（移动端/大屏触控） -->
+      <footer id="game-controls">
+        <div class="keyboard-hints">
+          <span class="key-badge">W / A / S / D 或方向键</span> 移动与瞄准
+          <span class="divider">|</span>
+          <span class="key-badge">J 或 空格</span> 挥铲挖掘
+          <span class="divider">|</span>
+          <span class="key-badge">I</span> 打开案情笔记
+        </div>
+
+        <!-- 触屏虚拟按键 -->
+        <div class="touch-dpad">
+          <button id="btn-left" class="dpad-btn">◀</button>
+          <div class="dpad-center">
+            <button id="btn-up" class="dpad-btn">▲</button>
+            <button id="btn-down" class="dpad-btn">▼</button>
+          </div>
+          <button id="btn-right" class="dpad-btn">▶</button>
+          <button id="btn-dig" class="action-btn">⛏️ 破土</button>
+        </div>
+      </footer>
+
+      <!-- 侧边抽屉：摸金行囊与案情推理笔记 -->
+      <aside id="inventory-modal" class="modal-hidden">
+        <div class="modal-content">
+          <div class="modal-header">
+            <h2>📜 摸金探勘笔记与出土物证</h2>
+            <button id="btn-close-modal" class="close-btn">×</button>
+          </div>
+
+          <!-- 推理判断卡片 -->
+          <div class="deduction-summary-card">
+            <div class="deduction-box">
+              <h3>🔍 核心推理 1：这里曾经是哪里？</h3>
+              <p id="deduction-loc-desc" class="deduction-text waiting">
+                [等待出土物证] 持续向深处挖掘，收集地层碎片来判定旧时代的地理历史坐标...
+              </p>
+            </div>
+            <div class="deduction-box">
+              <h3>🗝️ 核心推理 2：这里深处有什么大秘宝？</h3>
+              <p id="deduction-treasure-desc" class="deduction-text waiting">
+                [等待判定地点] 锁定地点后，将推导地下沉睡的终极文明重器...
+              </p>
+            </div>
+          </div>
+
+          <!-- 钥匙与出土遗物列表 -->
+          <div class="inventory-section">
+            <h3>🏺 当前出土物证与钥匙</h3>
+            <div id="relic-list" class="relic-grid">
+              <div class="empty-hint">暂无出土物，继续向下挖掘...</div>
+            </div>
+          </div>
+        </div>
+      </aside>
+    </div>
+
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>

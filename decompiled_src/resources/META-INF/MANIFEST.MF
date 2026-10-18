@@ -1,0 +1,11 @@
+Manifest-Version: 1.0
+MicroEdition-Configuration: CLDC-1.0
+MIDlet-Name: 新浪-地心游记
+MIDlet-Icon: /icons/icon.png
+MIDlet-Vendor: 新浪无线
+MIDlet-1: 新浪-地心游记, /icons/icon.png, zdxz.zdxz
+Media-Price: 5元/次
+MIDlet-Version: 1.0
+MicroEdition-Profile: MIDP-2.0
+MIDlet-Description: 单机, MotoE398s, 益智游戏
+
