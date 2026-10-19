@@ -26,6 +26,11 @@ export class Camera {
     this.viewportHeight = height;
   }
 
+  public setWorldSize(worldWidth: number, worldHeight: number): void {
+    this.worldWidth = worldWidth;
+    this.worldHeight = worldHeight;
+  }
+
   // 触发屏幕震屏
   public triggerShake(intensity: number = 8, duration: number = 0.25): void {
     this.shakeIntensity = Math.max(this.shakeIntensity, intensity);

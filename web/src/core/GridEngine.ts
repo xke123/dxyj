@@ -10,11 +10,12 @@
  */
 
 import {
-  COLS, ROWS, TILE_SIZE,
+  COLS, TILE_SIZE,
   TileColor, SpecialType, CrystalType, TreasureKind,
-  TILE_COLORS,
+  TILE_COLORS, getStageTargetRow,
   type Tile, type TileKind, type FloatingText,
   type ActiveLaser, type ActiveShockwave,
+  type StageInfo,
 } from './Types';
 import { ParticleSystem } from '../render/ParticleSystem';
 import { SoundEffects } from '../audio/SoundEffects';
@@ -69,6 +70,25 @@ function makeTreasureTile(treasureKind: TreasureKind, coins: number): Tile {
     falling: false, fallYOffset: 0,
     treasureKind,
     coins,
+  };
+}
+
+function makeGoalChestTile(coins: number): Tile {
+  return {
+    kind: SpecialType.GOAL, durability: 9999, maxDurability: 9999,
+    shakeWarning: false, shakeTimer: 0,
+    shakeVisualX: 0, shakeVisualY: 0,
+    falling: false, fallYOffset: 0,
+    coins,
+  };
+}
+
+function makeBedrockTile(): Tile {
+  return {
+    kind: SpecialType.BEDROCK, durability: 99999, maxDurability: 99999,
+    shakeWarning: false, shakeTimer: 0,
+    shakeVisualX: 0, shakeVisualY: 0,
+    falling: false, fallYOffset: 0,
   };
 }
 
@@ -166,29 +186,56 @@ export class GridEngine {
 
   public setCamera(c: Camera) { this.camera = c; }
 
-  // ── 初始地图构建 ──
+  public get rows(): number {
+    return this.grid.length;
+  }
+
+  // ── 初始地图构建（默认代理给 buildStageWorld）──
   public buildInitialWorld(): void {
+    this.buildStageWorld();
+  }
+
+  // ── 按照关卡要求生成固定深度的地图与最底层的通关宝箱 ──
+  public buildStageWorld(stage?: StageInfo): void {
     this.grid = [];
     this.scrolledRows = 0;
     this.activeLasers = [];
     this.activeShockwaves = [];
 
-    // 顶部4行空白（起始安全区）
-    for (let r = 0; r < 4; r++) {
+    const depthM = stage ? stage.depthM : 60;
+    const prize = stage ? stage.prize : 5000;
+    const targetRow = getStageTargetRow(depthM);
+
+    // 1. 顶部 3 行空气（地表与起始安全区，机器人站在第 2 行 (COLS/2, 2)，深度为 0m）
+    for (let r = 0; r < 3; r++) {
       this.grid.push(Array.from({ length: COLS }, () => makeEmpty()));
     }
 
-    // 地下内容（第4行起填充矿石与宝藏）
-    for (let r = 4; r < ROWS; r++) {
-      this.grid.push(generateRow(r - 4));
+    // 2. 地下开采层：从第 3 行一直生成到 targetRow - 1 行
+    for (let r = 3; r < targetRow; r++) {
+      this.grid.push(generateRow(r - 2));
     }
+
+    // 3. 通关奖励宝箱层（放置在最底部的 targetRow 行，全列均为金碧辉煌的终关通关秘宝箱）
+    const chestRow: Tile[] = [];
+    for (let c = 0; c < COLS; c++) {
+      chestRow.push(makeGoalChestTile(prize));
+    }
+    this.grid.push(chestRow);
+
+    // 4. 底部坚不可摧的远古基岩层（支撑最底层宝箱与上方所有物理方块，界定地心极限）
+    const bedrockRow: Tile[] = [];
+    for (let c = 0; c < COLS; c++) {
+      bedrockRow.push(makeBedrockTile());
+    }
+    this.grid.push(bedrockRow);
   }
 
   // ── 原版 F()：地图向上卷动一行（玩家下潜）──
   public scrollWorldDown(): void {
     this.scrolledRows++;
     this.grid.shift();
-    const depth = this.scrolledRows + ROWS;
+    const depth = this.scrolledRows + this.rows;
     this.grid.push(generateRow(depth));
   }
 
@@ -198,7 +245,7 @@ export class GridEngine {
     if (!tile || !isColor(tile.kind)) return [];
 
     const targetKind = tile.kind;
-    const visited: boolean[][] = Array.from({ length: ROWS }, () => Array(COLS).fill(false));
+    const visited: boolean[][] = Array.from({ length: this.rows }, () => Array(COLS).fill(false));
     const stack: Array<{ c: number; r: number }> = [{ c: startC, r: startR }];
     const cluster: Array<{ c: number; r: number }> = [];
 
@@ -214,7 +261,7 @@ export class GridEngine {
       ];
 
       for (const n of neighbors) {
-        if (n.c < 0 || n.c >= COLS || n.r < 0 || n.r >= ROWS) continue;
+        if (n.c < 0 || n.c >= COLS || n.r < 0 || n.r >= this.rows) continue;
         if (visited[n.r][n.c]) continue;
         const nt = this.grid[n.r][n.c];
         if (nt && nt.kind === targetKind) {
@@ -230,7 +277,18 @@ export class GridEngine {
   // ── 原版 c(i, j)：岩石耐久步进 ──
   public hitRock(c: number, r: number): boolean {
     const tile = this.grid[r]?.[c];
-    if (!tile || tile.kind !== SpecialType.ROCK) return false;
+    if (!tile) return false;
+
+    // 坚不可摧的远古基岩
+    if (tile.kind === SpecialType.BEDROCK) {
+      this.emitShatter(c, r, '#37474f', 4);
+      this.camera?.triggerShake(3, 0.1);
+      this.audio.playDig();
+      this.addFloatingText(c * TILE_SIZE + TILE_SIZE / 2, r * TILE_SIZE, '⛔ 远古基岩', '#90a4ae', 16);
+      return false;
+    }
+
+    if (tile.kind !== SpecialType.ROCK) return false;
 
     tile.durability--;
     tile.shakeTimer = 0.18;
@@ -297,7 +355,7 @@ export class GridEngine {
   public clearColorTiles(color: TileColor, centerR: number): number {
     let clearedCount = 0;
     const startR = Math.max(0, centerR - 6);
-    const endR = Math.min(ROWS - 1, centerR + 12);
+    const endR = Math.min(this.rows - 1, centerR + 12);
     const colorInfo = TILE_COLORS[color];
 
     for (let r = startR; r <= endR; r++) {
@@ -323,7 +381,7 @@ export class GridEngine {
   public clearRockTiles(centerR: number): number {
     let clearedCount = 0;
     const startR = Math.max(0, centerR - 6);
-    const endR = Math.min(ROWS - 1, centerR + 12);
+    const endR = Math.min(this.rows - 1, centerR + 12);
 
     for (let r = startR; r <= endR; r++) {
       for (let c = 0; c < COLS; c++) {
@@ -347,11 +405,11 @@ export class GridEngine {
    */
   public castLaser(col: number, playerR: number, range: number = 14): { col: number; startR: number; endR: number } {
     const startR = playerR + 1;
-    const endR = Math.min(ROWS - 1, playerR + range);
+    const endR = Math.min(this.rows - 1, playerR + range);
 
     for (let r = startR; r <= endR; r++) {
       const tile = this.grid[r][col];
-      if (tile.kind === SpecialType.GOAL) break;
+      if (tile.kind === SpecialType.GOAL || tile.kind === SpecialType.BEDROCK) break;
 
       if (tile.kind !== SpecialType.EMPTY) {
         this.emitShatter(col, r, '#00e5ff', 8);
@@ -379,14 +437,14 @@ export class GridEngine {
   public castEarthquake(playerC: number, playerR: number, radius: number = 3): number {
     let cleared = 0;
     const minR = Math.max(0, playerR - radius);
-    const maxR = Math.min(ROWS - 1, playerR + radius);
+    const maxR = Math.min(this.rows - 1, playerR + radius);
     const minC = Math.max(0, playerC - radius);
     const maxC = Math.min(COLS - 1, playerC + radius);
 
     for (let r = minR; r <= maxR; r++) {
       for (let c = minC; c <= maxC; c++) {
         const tile = this.grid[r][c];
-        if (tile.kind === SpecialType.EMPTY || tile.kind === SpecialType.GOAL) continue;
+        if (tile.kind === SpecialType.EMPTY || tile.kind === SpecialType.GOAL || tile.kind === SpecialType.BEDROCK) continue;
 
         this.emitShatter(c, r, '#ff9100', 6);
         this.grid[r][c] = makeEmpty();
@@ -418,7 +476,7 @@ export class GridEngine {
     for (let c = startC; c <= endC; c++) {
       for (let r = 0; r <= playerRow; r++) {
         const tile = this.grid[r]?.[c];
-        if (tile && tile.kind !== SpecialType.EMPTY && tile.kind !== SpecialType.GOAL) {
+        if (tile && tile.kind !== SpecialType.EMPTY && tile.kind !== SpecialType.GOAL && tile.kind !== SpecialType.BEDROCK) {
           const color = isColor(tile.kind)
             ? TILE_COLORS[tile.kind as number].main
             : (tile.kind === SpecialType.ROCK ? '#90a4ae' : '#ffd700');
@@ -464,15 +522,15 @@ export class GridEngine {
     }
 
     // 阶段1：原版 as() 基底支撑与同色互锁吸附（Support & Adsorption Propagation）
-    const supported: boolean[][] = Array.from({ length: ROWS }, () => Array(COLS).fill(false));
+    const supported: boolean[][] = Array.from({ length: this.rows }, () => Array(COLS).fill(false));
     const supportQueue: Array<{ c: number; r: number }> = [];
 
     // 最底行（基底层/终点层）默认具有不可撼动的地脉支撑
     for (let c = 0; c < COLS; c++) {
-      const bTile = this.grid[ROWS - 1][c];
+      const bTile = this.grid[this.rows - 1][c];
       if (bTile.kind !== SpecialType.EMPTY) {
-        supported[ROWS - 1][c] = true;
-        supportQueue.push({ c, r: ROWS - 1 });
+        supported[this.rows - 1][c] = true;
+        supportQueue.push({ c, r: this.rows - 1 });
       }
     }
 
@@ -491,7 +549,7 @@ export class GridEngine {
           { c: cur.c, r: cur.r + 1 },
         ];
         for (const nb of neighbors) {
-          if (nb.c >= 0 && nb.c < COLS && nb.r >= 0 && nb.r < ROWS) {
+          if (nb.c >= 0 && nb.c < COLS && nb.r >= 0 && nb.r < this.rows) {
             if (!supported[nb.r][nb.c] && this.grid[nb.r][nb.c].kind === curTile.kind) {
               supported[nb.r][nb.c] = true;
               supportQueue.push(nb);
@@ -512,10 +570,10 @@ export class GridEngine {
     }
 
     // 阶段2：扫描失去支撑的悬空方块，启动/同步预警颤动
-    for (let r = 0; r < ROWS; r++) {
+    for (let r = 0; r < this.rows; r++) {
       for (let c = 0; c < COLS; c++) {
         const tile = this.grid[r][c];
-        if (tile.kind === SpecialType.EMPTY || tile.kind === SpecialType.GOAL) continue;
+        if (tile.kind === SpecialType.EMPTY || tile.kind === SpecialType.GOAL || tile.kind === SpecialType.BEDROCK) continue;
 
         if (!supported[r][c]) {
           // 失去支撑：进入颤动预警
@@ -535,7 +593,7 @@ export class GridEngine {
     }
 
     // 阶段3：更新预警颤动计时与插值
-    for (let r = 0; r < ROWS; r++) {
+    for (let r = 0; r < this.rows; r++) {
       for (let c = 0; c < COLS; c++) {
         const tile = this.grid[r][c];
         if (tile.kind === SpecialType.EMPTY) continue;
@@ -563,7 +621,7 @@ export class GridEngine {
     }
 
     // 阶段4：原版 ax() 下落推进与砸击判定
-    for (let r = ROWS - 2; r >= 0; r--) {
+    for (let r = this.rows - 2; r >= 0; r--) {
       for (let c = 0; c < COLS; c++) {
         const tile = this.grid[r][c];
         if (!tile.falling) continue;
@@ -617,7 +675,7 @@ export class GridEngine {
     }
 
     // 阶段5：原版 as() & l() 落地判定与连击同色消除 (Landing Chain Elimination)
-    for (let r = ROWS - 1; r >= 0; r--) {
+    for (let r = this.rows - 1; r >= 0; r--) {
       for (let c = 0; c < COLS; c++) {
         const tile = this.grid[r][c];
         if (tile.landed && isColor(tile.kind)) {

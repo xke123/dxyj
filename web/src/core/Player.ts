@@ -9,8 +9,8 @@
  */
 
 import {
-  COLS, ROWS, TILE_SIZE, SpecialType, CrystalType, TreasureKind,
-  CRYSTAL_METAS, UPGRADE_MATRIX,
+  COLS, TILE_SIZE, SpecialType, CrystalType, TreasureKind,
+  CRYSTAL_METAS, UPGRADE_MATRIX, getStageTargetRow,
   type PlayerState, type StageInfo, type SaveData, type Tile,
 } from './Types';
 import { GridEngine } from './GridEngine';
@@ -25,17 +25,19 @@ export class PlayerController {
   private onDead?: () => void;
   private onWin?: () => void;
 
+  public stage?: StageInfo;
   public targetRow: number;
 
   constructor(engine: GridEngine, stage?: StageInfo, saveData?: SaveData) {
     this.engine = engine;
+    this.stage = stage;
     const startCol = Math.floor(COLS / 2);
     const startRow = 2;
 
     const level = saveData ? Math.max(1, Math.min(20, saveData.level)) : 1;
     const upgrade = UPGRADE_MATRIX[level - 1];
-    const depthM = stage ? stage.depthM : 120;
-    this.targetRow = depthM > 0 ? Math.ceil(depthM / 2) : -1;
+    const depthM = stage ? stage.depthM : 60;
+    this.targetRow = getStageTargetRow(depthM);
 
     this.state = {
       gridX: startCol,
@@ -59,7 +61,7 @@ export class PlayerController {
       isInvincible: false,
       invincibleTimer: 0,
       depth: 0,
-      targetDepth: depthM,
+      targetDepth: depthM > 0 ? depthM : 60,
       won: false,
       dead: false,
     };
@@ -148,6 +150,35 @@ export class PlayerController {
     return false;
   }
 
+  // ── 开启最底层的通关秘宝箱 ──
+  public collectGoalChest(nx: number, ny: number): void {
+    if (this.state.won || this.state.dead) return;
+
+    const prize = this.stage ? this.stage.prize : 5000;
+    this.state.sessionCoins += prize;
+    this.state.coins += prize;
+
+    const wx = nx * TILE_SIZE + TILE_SIZE / 2;
+    const wy = ny * TILE_SIZE + TILE_SIZE / 2;
+
+    this.engine.particles.emitSparkle(wx, wy, '#ffd700', 45);
+    this.engine.particles.emitSparkle(wx, wy, '#00e5ff', 30);
+    this.engine.camera?.triggerShake(14, 0.4);
+    this.engine.audio.playRelicFound();
+
+    this.engine.addFloatingText(
+      wx,
+      wy - 18,
+      `🏆 开启通关宝箱! +${prize.toLocaleString()} 奖金`,
+      '#ffd700',
+      24
+    );
+
+    this.moveTo(nx, ny);
+    this.state.won = true;
+    this.onWin?.();
+  }
+
   // ── 尝试拾取或交互格子 ──
   private handleTileInteraction(nx: number, ny: number): boolean {
     const tile = this.engine.grid[ny]?.[nx];
@@ -170,18 +201,18 @@ export class PlayerController {
       return false;
     }
 
-    // 3. 通关目标
+    // 3. 通关奖励宝箱（位于关卡最底层）
     if (tile.kind === SpecialType.GOAL) {
-      this.moveTo(nx, ny);
+      this.collectGoalChest(nx, ny);
       return true;
     }
 
     return false;
   }
 
-  // 判定指定格子是否可通过（空气、可拾取宝藏或水晶、目标终点）
+  // 判定指定格子是否可通过（空气、可拾取宝藏或水晶、目标终点宝箱）
   public isPassable(c: number, r: number): boolean {
-    if (c < 0 || c >= COLS || r < 0 || r >= ROWS) return false;
+    if (c < 0 || c >= COLS || r < 0 || r >= this.engine.rows) return false;
     const tile = this.engine.grid[r]?.[c];
     if (!tile) return false;
     return (
@@ -213,7 +244,7 @@ export class PlayerController {
       // 前方是纯空气空格
       if (targetTile?.kind === SpecialType.EMPTY) {
         // 原版 b.java:2914：若目标格下方也是纯空格，玩家前移并顺势下落 1 格台阶
-        const belowTile = ny + 1 < ROWS ? this.engine.grid[ny + 1]?.[nx] : null;
+        const belowTile = ny + 1 < this.engine.rows ? this.engine.grid[ny + 1]?.[nx] : null;
         if (belowTile && belowTile.kind === SpecialType.EMPTY) {
           this.moveTo(nx, ny + 1);
           return true;
@@ -222,8 +253,12 @@ export class PlayerController {
         return true;
       }
 
-      // 前方是宝藏或水晶：走入该格并实实在在地拾取宝物
-      if (targetTile?.kind === SpecialType.TREASURE || targetTile?.kind === SpecialType.CRYSTAL) {
+      // 前方是宝藏、水晶或通关宝箱：走入开箱拾取！
+      if (
+        targetTile?.kind === SpecialType.TREASURE ||
+        targetTile?.kind === SpecialType.CRYSTAL ||
+        targetTile?.kind === SpecialType.GOAL
+      ) {
         return this.handleTileInteraction(nx, ny);
       }
 
@@ -240,10 +275,10 @@ export class PlayerController {
     // 2. 垂直移动
     const nx = this.state.gridX + dirX;
     const ny = this.state.gridY + dirY;
-    if (nx < 0 || nx >= COLS || ny < 0 || ny >= ROWS) return false;
+    if (nx < 0 || nx >= COLS || ny < 0 || ny >= this.engine.rows) return false;
 
     if (dirY > 0) {
-      // 向下移动：进入空格或拾取宝藏
+      // 向下移动：进入空格或拾取宝藏/通关宝箱
       if (this.isPassable(nx, ny)) {
         return this.handleTileInteraction(nx, ny);
       }
@@ -267,13 +302,17 @@ export class PlayerController {
     const tx = this.state.gridX + dx;
     const ty = this.state.gridY + dy;
 
-    if (tx < 0 || tx >= COLS || ty < 0 || ty >= ROWS) return false;
+    if (tx < 0 || tx >= COLS || ty < 0 || ty >= this.engine.rows) return false;
 
     const targetTile = this.engine.grid[ty]?.[tx];
     if (!targetTile || targetTile.kind === SpecialType.EMPTY) return false;
 
-    // 先检查是否是宝藏或水晶
-    if (targetTile.kind === SpecialType.CRYSTAL || targetTile.kind === SpecialType.TREASURE) {
+    // 先检查是否是宝藏、水晶或通关宝箱
+    if (
+      targetTile.kind === SpecialType.CRYSTAL ||
+      targetTile.kind === SpecialType.TREASURE ||
+      targetTile.kind === SpecialType.GOAL
+    ) {
       return this.handleTileInteraction(tx, ty);
     }
 
@@ -421,14 +460,16 @@ export class PlayerController {
     this.state.targetX = nx * TILE_SIZE;
     this.state.targetY = ny * TILE_SIZE;
 
-    // 深度更新（原版深度 = 行号*2m）
+    // 深度更新（原版深度 = (行号 - 2) * 2m，第2行地面为0m）
     const absoluteRow = ny + this.engine.scrolledRows;
     this.state.depth = Math.max(0, (absoluteRow - 2) * 2);
 
-    // 通关判断（有限深度关卡）
+    // 通关判断：到达目标行如果碰到宝箱
     if (this.targetRow > 0 && absoluteRow >= this.targetRow && !this.state.won && !this.state.dead) {
-      this.state.won = true;
-      this.onWin?.();
+      const tile = this.engine.grid[ny]?.[nx];
+      if (tile?.kind === SpecialType.GOAL) {
+        this.collectGoalChest(nx, ny);
+      }
     }
   }
 
@@ -477,7 +518,7 @@ export class PlayerController {
       this.fallCooldown -= dt;
       if (this.fallCooldown <= 0) {
         const belowY = this.state.gridY + 1;
-        if (belowY < ROWS) {
+        if (belowY < this.engine.rows) {
           const belowTile = this.engine.grid[belowY]?.[this.state.gridX];
           if (belowTile) {
             if (belowTile.kind === SpecialType.EMPTY) {
@@ -488,6 +529,10 @@ export class PlayerController {
               this.collectTileItem(belowTile, this.state.gridX * TILE_SIZE + TILE_SIZE / 2, belowY * TILE_SIZE);
               this.engine.clearTile(this.state.gridX, belowY);
               this.moveTo(this.state.gridX, belowY);
+              this.fallCooldown = 0.08;
+            } else if (belowTile.kind === SpecialType.GOAL) {
+              // 悬空直接落入最底部的通关宝箱！
+              this.collectGoalChest(this.state.gridX, belowY);
               this.fallCooldown = 0.08;
             }
           }

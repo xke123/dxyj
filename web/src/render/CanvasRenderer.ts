@@ -11,7 +11,7 @@
  */
 
 import {
-  COLS, ROWS, TILE_SIZE, SpecialType, CrystalType, TreasureKind,
+  COLS, TILE_SIZE, SpecialType, CrystalType, TreasureKind,
   TILE_COLORS, ROCK_COLORS, CRYSTAL_METAS,
   type Tile,
 } from '../core/Types';
@@ -67,7 +67,7 @@ export class CanvasRenderer {
   // ── 深色地下背景 + 深度标尺 ──
   private drawBackground(ctx: CanvasRenderingContext2D): void {
     const worldW = COLS * TILE_SIZE;
-    const worldH = ROWS * TILE_SIZE;
+    const worldH = this.engine.rows * TILE_SIZE;
 
     const grad = ctx.createLinearGradient(0, 0, 0, worldH);
     grad.addColorStop(0,    '#0d1117');
@@ -89,13 +89,13 @@ export class CanvasRenderer {
     ctx.fillStyle = 'rgba(255,255,255,0.12)';
     ctx.font = '10px monospace';
 
-    for (let r = 8; r < ROWS; r += 8) {
+    for (let r = 8; r < this.engine.rows; r += 8) {
       const y = r * TILE_SIZE;
       ctx.beginPath();
       ctx.moveTo(0, y);
       ctx.lineTo(worldW, y);
       ctx.stroke();
-      const depthM = (r + this.engine.scrolledRows - 4) * 2;
+      const depthM = (r - 2) * 2;
       if (depthM > 0) ctx.fillText(`${depthM}m`, 6, y - 3);
     }
     ctx.setLineDash([]);
@@ -111,7 +111,7 @@ export class CanvasRenderer {
     const startC = Math.max(0, Math.floor(camX / TILE_SIZE) - 1);
     const endC   = Math.min(COLS - 1, Math.ceil((camX + vw) / TILE_SIZE));
     const startR = Math.max(0, Math.floor(camY / TILE_SIZE) - 1);
-    const endR   = Math.min(ROWS - 1, Math.ceil((camY + vh) / TILE_SIZE));
+    const endR   = Math.min(this.engine.rows - 1, Math.ceil((camY + vh) / TILE_SIZE));
 
     for (let r = startR; r <= endR; r++) {
       for (let c = startC; c <= endC; c++) {
@@ -344,6 +344,100 @@ export class CanvasRenderer {
         ctx.fillText(icon, cx, cy + 1);
         ctx.restore();
       }
+
+    } else if (kind === SpecialType.GOAL) {
+      // ── 最底层终极通关奖励宝箱（华丽的金色通关大宝箱）──
+      const glow = 0.75 + 0.25 * Math.sin(now * 0.008 + x * 0.1);
+
+      // 1. 底座黄金祭台/宝箱基底
+      ctx.fillStyle = '#3a1f0a';
+      ctx.fillRect(x + pad, y + pad, inner, inner);
+
+      // 上左高光棱边
+      ctx.fillStyle = '#6d4218';
+      ctx.fillRect(x + pad, y + pad, inner, 3);
+      ctx.fillRect(x + pad, y + pad, 3, inner);
+
+      // 宝箱深色红木/古铜实心箱体
+      ctx.fillStyle = '#7a4212';
+      ctx.fillRect(x + 4, y + 10, S - 8, S - 13);
+
+      // 2. 宝箱盖（圆拱形金色箱盖，带流光高光）
+      const lidH = S * 0.36;
+      ctx.fillStyle = '#a6681d';
+      ctx.beginPath();
+      ctx.roundRect(x + 3, y + 4, S - 6, lidH, [5, 5, 0, 0]);
+      ctx.fill();
+
+      // 箱盖顶部流光高光
+      ctx.fillStyle = '#ffe082';
+      ctx.fillRect(x + 5, y + 5, S - 10, 2);
+
+      // 3. 黄金金属包边与角码
+      ctx.save();
+      ctx.shadowColor = '#ffd700';
+      ctx.shadowBlur = 14 * glow;
+      ctx.strokeStyle = `rgba(255, 215, 0, ${glow})`;
+      ctx.lineWidth = 2.2;
+      ctx.strokeRect(x + 4, y + 5, S - 8, S - 8);
+
+      // 箱身中间的纵向黄金加固横带
+      ctx.fillStyle = '#ffd54f';
+      ctx.fillRect(x + S / 2 - 3, y + 5, 6, S - 8);
+      ctx.restore();
+
+      // 4. 正中央皇家锁扣与镶嵌红宝石
+      const cx = x + S / 2;
+      const cy = y + S / 2 + 2;
+
+      // 黄金锁牌
+      ctx.fillStyle = '#ffa000';
+      ctx.beginPath();
+      ctx.arc(cx, cy, 5.5, 0, Math.PI * 2);
+      ctx.fill();
+
+      // 璀璨红宝石核心
+      ctx.fillStyle = '#ff1744';
+      ctx.beginPath();
+      ctx.arc(cx, cy, 3, 0, Math.PI * 2);
+      ctx.fill();
+
+      // 5. 宝箱上方漂浮的奖杯/皇冠与光芒
+      ctx.save();
+      ctx.font = `${S * 0.35}px sans-serif`;
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText('🏆', cx, y + 3);
+      ctx.restore();
+
+    } else if (kind === SpecialType.BEDROCK) {
+      // ── 地底最深处的远古不可摧毁基岩 ──
+      ctx.fillStyle = '#10141a';
+      ctx.fillRect(x + pad, y + pad, inner, inner);
+
+      // 金属深灰色棱边
+      ctx.fillStyle = '#263238';
+      ctx.fillRect(x + pad, y + pad, inner, 2);
+      ctx.fillRect(x + pad, y + pad, 2, inner);
+      ctx.fillStyle = '#05070a';
+      ctx.fillRect(x + pad, y + S - pad - 2, inner, 2);
+      ctx.fillRect(x + S - pad - 2, y + pad, 2, inner);
+
+      // 岩体纹理与地心微光缝隙
+      ctx.strokeStyle = '#37474f';
+      ctx.lineWidth = 1.5;
+      ctx.beginPath();
+      ctx.moveTo(x + 6, y + 10);
+      ctx.lineTo(x + 20, y + 24);
+      ctx.lineTo(x + 36, y + 18);
+      ctx.moveTo(x + 16, y + 36);
+      ctx.lineTo(x + 28, y + 28);
+      ctx.stroke();
+
+      // 地心微热红光斑
+      ctx.fillStyle = 'rgba(255, 87, 34, 0.25)';
+      ctx.fillRect(x + 8, y + 18, 5, 5);
+      ctx.fillRect(x + 26, y + 12, 4, 4);
     }
 
     // 受击颤动
@@ -407,25 +501,30 @@ export class CanvasRenderer {
   // ── 目标深度指示线 ──
   private drawTargetDepthIndicator(ctx: CanvasRenderingContext2D): void {
     if (this.playerCtrl.targetRow <= 0) return;
-    const targetAbsRow = this.playerCtrl.targetRow - this.engine.scrolledRows;
-    if (targetAbsRow < 0 || targetAbsRow >= ROWS) return;
+    const targetAbsRow = this.playerCtrl.targetRow;
+    if (targetAbsRow < 0 || targetAbsRow >= this.engine.rows) return;
 
     const y = targetAbsRow * TILE_SIZE;
     const worldW = COLS * TILE_SIZE;
 
     ctx.save();
-    ctx.setLineDash([8, 4]);
-    ctx.strokeStyle = 'rgba(255, 200, 0, 0.7)';
+    const now = performance.now();
+    const glow = 0.6 + 0.4 * Math.sin(now * 0.006);
+
+    ctx.setLineDash([12, 6]);
+    ctx.strokeStyle = `rgba(255, 215, 0, ${glow})`;
     ctx.lineWidth = 2.5;
     ctx.beginPath();
     ctx.moveTo(0, y);
     ctx.lineTo(worldW, y);
     ctx.stroke();
 
-    ctx.fillStyle = '#ffc800';
+    ctx.fillStyle = '#ffd700';
     ctx.font = 'bold 12px sans-serif';
     ctx.textAlign = 'right';
-    ctx.fillText(`🚩 目标深度 ${this.playerCtrl.targetRow * 2}m`, worldW - 8, y - 6);
+    const prize = this.playerCtrl.stage?.prize ?? 5000;
+    const depthM = this.playerCtrl.stage?.depthM ?? 60;
+    ctx.fillText(`🏆 终点通关宝箱 ${depthM}m（奖金 +${prize.toLocaleString()}）`, worldW - 8, y - 6);
     ctx.restore();
   }
 

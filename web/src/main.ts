@@ -413,7 +413,8 @@ class GameManager {
     this.phase = 'playing';
     this.switchScreen('game');
 
-    this.engine.buildInitialWorld();
+    this.engine.buildStageWorld(stage);
+    this.camera.setWorldSize(COLS * TILE_SIZE, this.engine.rows * TILE_SIZE);
     this.engine.scrolledRows = 0;
     this.engine.floatingTexts = [];
 

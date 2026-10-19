@@ -151,13 +151,24 @@ export const SpecialType = {
   ROCK:      9,  // 数字岩石（耐久 1~5，原版 c 字段）
   CRYSTAL:  10,  // 可拾取法术水晶道具（存放 crystalType）
   TREASURE: 11,  // 即时宝藏（存放 treasureKind 与 coins）
-  GOAL:     12,  // 目标深度层（终点）
+  GOAL:     12,  // 目标深度层通关宝箱（放置在最底层）
+  BEDROCK:  13,  // 坚不可摧的底部基岩
 } as const;
 
 export type SpecialType = typeof SpecialType[keyof typeof SpecialType];
 
 // Tile 联合类型
-export type TileKind = TileColor | -1 | 9 | 10 | 11 | 12;
+export type TileKind = TileColor | -1 | 9 | 10 | 11 | 12 | 13;
+
+/**
+ * 根据关卡目标深度 (m) 计算通关宝箱所在的行号
+ * 玩家初始位置为 row = 2 (depth = 0m)
+ * 每深入 1 行深度增加 2m：depth = (row - 2) * 2m
+ */
+export function getStageTargetRow(depthM: number): number {
+  if (depthM <= 0) return 52;
+  return 2 + Math.max(10, Math.round(depthM / 2));
+}
 
 export interface Tile {
   kind: TileKind;
