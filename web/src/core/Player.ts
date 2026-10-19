@@ -153,8 +153,9 @@ export class PlayerController {
   // ── 开启最底层的通关秘宝箱 ──
   public collectGoalChest(nx: number, ny: number): void {
     if (this.state.won || this.state.dead) return;
+    this.state.won = true; // 关键防线：第一时间标记通关，彻底阻止任何后续重复触发与重入递归！
 
-    const prize = this.stage ? this.stage.prize : 5000;
+    const prize = this.stage ? this.stage.prize : 8000;
     this.state.sessionCoins += prize;
     this.state.coins += prize;
 
@@ -174,8 +175,14 @@ export class PlayerController {
       24
     );
 
-    this.moveTo(nx, ny);
-    this.state.won = true;
+    // 就地安全同步坐标与深度，绝不调用会反向递归调用本函数的 moveTo
+    this.state.gridX = nx;
+    this.state.gridY = ny;
+    this.state.targetX = nx * TILE_SIZE;
+    this.state.targetY = ny * TILE_SIZE;
+    const absoluteRow = ny + this.engine.scrolledRows;
+    this.state.depth = Math.max(0, absoluteRow - 2);
+
     this.onWin?.();
   }
 
@@ -469,6 +476,7 @@ export class PlayerController {
       const tile = this.engine.grid[ny]?.[nx];
       if (tile?.kind === SpecialType.GOAL) {
         this.collectGoalChest(nx, ny);
+        return;
       }
     }
 

@@ -547,31 +547,41 @@ export class GridEngine {
    * 6. 闪亮水晶：垂直向下强力激光贯穿14格深度（对标原版 j()）
    */
   public castLaser(col: number, playerR: number, range: number = 14): { col: number; startR: number; endR: number } {
-    const startR = playerR + 1;
-    const endR = Math.min(this.rows - 1, playerR + range);
+    const startR = Math.max(0, playerR + 1);
+    const maxEndR = Math.min(this.rows - 1, playerR + range);
+    let hitEndR = startR;
 
-    for (let r = startR; r <= endR; r++) {
-      const tile = this.grid[r][col];
-      if (tile.kind === SpecialType.GOAL || tile.kind === SpecialType.BEDROCK) break;
+    for (let r = startR; r <= maxEndR; r++) {
+      const rowTiles = this.grid[r];
+      if (!rowTiles) break;
+      const tile = rowTiles[col];
+      if (!tile) break;
+
+      // 遇到终点宝箱或基岩停住，绝不破坏宝箱与基岩
+      if (tile.kind === SpecialType.GOAL || tile.kind === SpecialType.BEDROCK) {
+        hitEndR = Math.max(startR, r - 1);
+        break;
+      }
 
       if (tile.kind !== SpecialType.EMPTY) {
         this.emitShatter(col, r, '#00e5ff', 8);
         this.grid[r][col] = makeEmpty();
       }
+      hitEndR = r;
     }
 
-    // 记录激光视觉特效
+    // 记录激光视觉特效（激光束精准止于终点宝箱正上方）
     this.activeLasers.push({
       col,
       startR,
-      endR,
+      endR: Math.max(startR, hitEndR),
       timer: 0.35,
       maxTimer: 0.35,
     });
 
     this.camera?.triggerShake(10, 0.25);
     this.audio.playLaser();
-    return { col, startR, endR };
+    return { col, startR, endR: hitEndR };
   }
 
   /**
@@ -585,9 +595,11 @@ export class GridEngine {
     const maxC = Math.min(COLS - 1, playerC + radius);
 
     for (let r = minR; r <= maxR; r++) {
+      const rowTiles = this.grid[r];
+      if (!rowTiles) continue;
       for (let c = minC; c <= maxC; c++) {
-        const tile = this.grid[r][c];
-        if (tile.kind === SpecialType.EMPTY || tile.kind === SpecialType.GOAL || tile.kind === SpecialType.BEDROCK) continue;
+        const tile = rowTiles[c];
+        if (!tile || tile.kind === SpecialType.EMPTY || tile.kind === SpecialType.GOAL || tile.kind === SpecialType.BEDROCK) continue;
 
         this.emitShatter(c, r, '#ff9100', 6);
         this.grid[r][c] = makeEmpty();

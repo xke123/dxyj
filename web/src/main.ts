@@ -472,9 +472,8 @@ class GameManager {
 
     const sessionCoins = this.player.state.sessionCoins;
     const prize = this.currentStage.prize;
-    const totalGained = sessionCoins + prize;
 
-    this.saveData.coins += totalGained;
+    this.saveData.coins = this.player.state.coins;
     this.saveData.crystals = [...this.player.state.crystals];
 
     if (!this.saveData.completedStages.includes(this.currentStage.id)) {
