@@ -54,6 +54,10 @@ export class PlayerController {
       facing: 'down',
       isDigging: false,
       digAnimTimer: 0,
+      isCrushed: false,
+      crushTimer: 0,
+      isInvincible: false,
+      invincibleTimer: 0,
       depth: 0,
       targetDepth: depthM,
       won: false,
@@ -161,21 +165,71 @@ export class PlayerController {
     return false;
   }
 
-  // ── 方向移动逻辑 ──
+  // 判定指定格子是否可通过（空气、可拾取宝藏或水晶、目标终点）
+  public isPassable(c: number, r: number): boolean {
+    if (c < 0 || c >= COLS || r < 0 || r >= ROWS) return false;
+    const tile = this.engine.grid[r]?.[c];
+    if (!tile) return false;
+    return (
+      tile.kind === SpecialType.EMPTY ||
+      tile.kind === SpecialType.CRYSTAL ||
+      tile.kind === SpecialType.TREASURE ||
+      tile.kind === SpecialType.GOAL
+    );
+  }
+
+  // ── 方向移动与台阶攀爬逻辑（对标原版 u(), D(), f()）──
   public tryMove(dirX: number, dirY: number): boolean {
-    if (this.state.isDigging || this.state.dead || this.state.won) return false;
+    if (this.state.isDigging || this.state.dead || this.state.won || this.state.isCrushed) return false;
 
     if (dirX > 0) this.state.facing = 'right';
     else if (dirX < 0) this.state.facing = 'left';
     else if (dirY > 0) this.state.facing = 'down';
     else if (dirY < 0) this.state.facing = 'up';
 
+    // 1. 横向移动与 1 格台阶自动攀爬翻越（原版 b.java:2906 D() 与 2930 f()）
+    if (dirX !== 0 && dirY === 0) {
+      const nx = this.state.gridX + dirX;
+      const ny = this.state.gridY;
+
+      if (nx < 0 || nx >= COLS) return false;
+
+      // 前方是空位/宝藏/水晶（可通行）
+      if (this.isPassable(nx, ny)) {
+        // 原版 b.java:2914：若前方格子下方也是空的，玩家前移并顺势下落 1 格台阶
+        if (ny + 1 < ROWS && this.isPassable(nx, ny + 1)) {
+          this.handleTileInteraction(nx, ny);
+          this.moveTo(nx, ny + 1);
+          return true;
+        }
+        return this.handleTileInteraction(nx, ny);
+      }
+
+      // 前方是实心方块（原版 b.java:2921 & 2945：判定是否能翻越 1 格高的障碍台阶）
+      // 判定条件：玩家头顶空气畅通 (gridX, ny - 1)，且前方方块头顶空气畅通 (nx, ny - 1)
+      if (ny > 0 && this.isPassable(this.state.gridX, ny - 1) && this.isPassable(nx, ny - 1)) {
+        // 成功攀爬上 1 格高的台阶！
+        return this.handleTileInteraction(nx, ny - 1);
+      }
+
+      return false;
+    }
+
+    // 2. 垂直移动
     const nx = this.state.gridX + dirX;
     const ny = this.state.gridY + dirY;
-
     if (nx < 0 || nx >= COLS || ny < 0 || ny >= ROWS) return false;
 
-    return this.handleTileInteraction(nx, ny);
+    if (dirY > 0) {
+      // 向下移动：进入空格或拾取宝藏
+      if (this.isPassable(nx, ny)) {
+        return this.handleTileInteraction(nx, ny);
+      }
+      return false;
+    }
+
+    // 向上移动：原版中不能凭空向上飞，但可转向朝上。若需要开路，只需按挖掘键即可挖掘上方同色方块！
+    return false;
   }
 
   // ── 原版 W() 挖掘朝向格子 ──
@@ -321,11 +375,22 @@ export class PlayerController {
     }
   }
 
+  // ── 原版 b.java:2354 & 332：被坠落方块砸中惩罚与受创状态机 ──
   public onCrush(): void {
-    if (this.state.dead) return;
-    this.consumeHp(30);
-    this.engine.camera?.triggerShake(12, 0.35);
-    this.engine.audio.playCascadeRumble();
+    if (this.state.dead || this.state.won || this.state.isInvincible || this.state.isCrushed) return;
+
+    this.state.isCrushed = true;
+    this.state.crushTimer = 0.45; // 0.45 秒受砸硬直
+    this.consumeHp(20); // 扣除生命惩罚
+    this.engine.camera?.triggerShake(14, 0.4);
+    this.engine.audio.playCrushHit();
+    this.engine.addFloatingText(
+      this.state.x + TILE_SIZE / 2,
+      this.state.y - 12,
+      '-20 💔 被砸伤!',
+      '#ff1744',
+      22
+    );
   }
 
   private moveTo(nx: number, ny: number): void {
@@ -352,7 +417,7 @@ export class PlayerController {
     this.onWin?.();
   }
 
-  // ── 每帧更新（平滑插值 + 重力坠落）──
+  // ── 每帧更新（平滑插值 + 重力坠落 + 被砸硬直与脱困）──
   public update(dt: number): void {
     if (this.state.isDigging) {
       this.state.digAnimTimer -= dt;
@@ -361,20 +426,41 @@ export class PlayerController {
       }
     }
 
+    // 被砸受创与无敌复原状态更新
+    if (this.state.isCrushed) {
+      this.state.crushTimer -= dt;
+      if (this.state.crushTimer <= 0) {
+        this.state.isCrushed = false;
+        this.state.isInvincible = true;
+        this.state.invincibleTimer = 0.6; // 0.6 秒闪烁无敌保护期
+        // 原版 aa() 机制：砸碎并清除玩家正上方直至头顶的整列方块，解救玩家脱困！
+        this.engine.clearColumnAbovePlayer(this.state.gridX, this.state.gridY);
+      }
+    }
+
+    if (this.state.isInvincible) {
+      this.state.invincibleTimer -= dt;
+      if (this.state.invincibleTimer <= 0) {
+        this.state.isInvincible = false;
+      }
+    }
+
     // 平滑插值渲染坐标
     const t = 1 - Math.pow(this.moveSpeed, dt * 60);
     this.state.x += (this.state.targetX - this.state.x) * t;
     this.state.y += (this.state.targetY - this.state.y) * t;
 
-    // 原版重力检查：脚下为空时自然坠落
-    this.fallCooldown -= dt;
-    if (this.fallCooldown <= 0 && !this.state.dead && !this.state.won) {
-      const belowY = this.state.gridY + 1;
-      if (belowY < ROWS) {
-        const belowTile = this.engine.grid[belowY]?.[this.state.gridX];
-        if (belowTile && belowTile.kind === SpecialType.EMPTY) {
-          this.moveTo(this.state.gridX, belowY);
-          this.fallCooldown = 0.08;
+    // 原版重力检查：脚下为空时自然坠落（受砸硬直期间由原版逻辑锁死位置）
+    if (!this.state.isCrushed && !this.state.dead && !this.state.won) {
+      this.fallCooldown -= dt;
+      if (this.fallCooldown <= 0) {
+        const belowY = this.state.gridY + 1;
+        if (belowY < ROWS) {
+          const belowTile = this.engine.grid[belowY]?.[this.state.gridX];
+          if (belowTile && belowTile.kind === SpecialType.EMPTY) {
+            this.moveTo(this.state.gridX, belowY);
+            this.fallCooldown = 0.08;
+          }
         }
       }
     }

@@ -384,6 +384,16 @@ export class CanvasRenderer {
     ctx.save();
     ctx.translate(cx, cy);
 
+    // 无敌闪烁
+    if (p.isInvincible) {
+      ctx.globalAlpha = Math.floor(performance.now() / 60) % 2 === 0 ? 0.35 : 1.0;
+    }
+
+    // 被砸扁压特效（原版 bL.a(7) 动画）
+    if (p.isCrushed) {
+      ctx.scale(1.35, 0.45);
+    }
+
     let angle = 0;
     if (p.facing === 'down')  angle = 0;
     else if (p.facing === 'up')    angle = Math.PI;
@@ -391,16 +401,16 @@ export class CanvasRenderer {
     else if (p.facing === 'right') angle = -Math.PI / 2;
     ctx.rotate(angle);
 
-    // 机器人机身
-    ctx.fillStyle = '#37474f';
+    // 机器人机身（受砸时变红警示）
+    ctx.fillStyle = p.isCrushed ? '#d32f2f' : '#37474f';
     ctx.fillRect(-S * 0.32, -S * 0.28, S * 0.64, S * 0.56);
 
-    ctx.strokeStyle = '#78909c';
+    ctx.strokeStyle = p.isCrushed ? '#ff5252' : '#78909c';
     ctx.lineWidth = 2;
     ctx.strokeRect(-S * 0.32, -S * 0.28, S * 0.64, S * 0.56);
 
-    // 驾驶舱护罩（青色光芒）
-    ctx.fillStyle = '#00e5ff';
+    // 驾驶舱护罩（青色光芒 / 受砸红光）
+    ctx.fillStyle = p.isCrushed ? '#ff1744' : '#00e5ff';
     ctx.beginPath();
     ctx.arc(0, -S * 0.05, S * 0.16, 0, Math.PI * 2);
     ctx.fill();

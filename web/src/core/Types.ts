@@ -174,6 +174,7 @@ export interface Tile {
   crystalType?: CrystalType;
   treasureKind?: TreasureKind;
   coins?: number;
+  landed?: boolean;
 }
 
 // ── 激光与地震视觉特效结构 ──
@@ -215,6 +216,12 @@ export interface PlayerState {
   facing: 'left' | 'right' | 'up' | 'down';
   isDigging: boolean;
   digAnimTimer: number;
+
+  // 原版被砸受创与无敌复原状态（对标 b.java:332 bL.G 与 bL.l）
+  isCrushed: boolean;
+  crushTimer: number;
+  isInvincible: boolean;
+  invincibleTimer: number;
 
   depth: number;
   targetDepth: number;

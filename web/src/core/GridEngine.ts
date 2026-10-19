@@ -409,8 +409,25 @@ export class GridEngine {
     return cleared;
   }
 
-  // ── 原版 ax()：物理状态机（重力下落与特效更新） ──
-  public updatePhysics(dt: number, _playerX?: number, _playerY?: number, _onCrush?: () => void): void {
+  // ── 原版 aa()：受砸脱困机制（消除玩家正上方一整列直至头顶的坚硬方块，解救玩家）──
+  public clearColumnAbovePlayer(playerCol: number, playerRow: number): void {
+    let cleared = false;
+    for (let r = 0; r <= playerRow; r++) {
+      const tile = this.grid[r]?.[playerCol];
+      if (tile && (isColor(tile.kind) || tile.kind === SpecialType.ROCK)) {
+        this.emitShatter(playerCol, r, isColor(tile.kind) ? TILE_COLORS[tile.kind as number].main : '#90a4ae', 8);
+        this.grid[r][playerCol] = makeEmpty();
+        cleared = true;
+      }
+    }
+    if (cleared) {
+      this.camera?.triggerShake(6, 0.15);
+      this.audio.playCascadeRumble();
+    }
+  }
+
+  // ── 原版 ax() + as()：物理状态机（结构支撑吸附、下落、被砸惩罚与落地连击消除）──
+  public updatePhysics(dt: number, playerX?: number, playerY?: number, onCrush?: () => void): void {
     const timeNow = performance.now();
 
     // 更新激光特效计时
@@ -432,22 +449,78 @@ export class GridEngine {
       }
     }
 
-    // 阶段1：扫描悬空方块，启动预警
-    for (let r = ROWS - 2; r >= 0; r--) {
-      for (let c = 0; c < COLS; c++) {
-        const tile = this.grid[r][c];
-        if (tile.kind === SpecialType.EMPTY) continue;
-        if (tile.falling || tile.shakeWarning) continue;
+    // 阶段1：原版 as() 基底支撑与同色互锁吸附（Support & Adsorption Propagation）
+    const supported: boolean[][] = Array.from({ length: ROWS }, () => Array(COLS).fill(false));
+    const supportQueue: Array<{ c: number; r: number }> = [];
 
-        const below = this.grid[r + 1][c];
-        if (below.kind === SpecialType.EMPTY) {
-          tile.shakeWarning = true;
-          tile.shakeTimer = 0.42;
+    // 最底行（基底层/终点层）默认具有不可撼动的地脉支撑
+    for (let c = 0; c < COLS; c++) {
+      const bTile = this.grid[ROWS - 1][c];
+      if (bTile.kind !== SpecialType.EMPTY) {
+        supported[ROWS - 1][c] = true;
+        supportQueue.push({ c, r: ROWS - 1 });
+      }
+    }
+
+    // 广度优先传播支撑：同色方块四向吸附连通，且坐在受支撑方块上方的任意方块均获支撑
+    let qHead = 0;
+    while (qHead < supportQueue.length) {
+      const cur = supportQueue[qHead++];
+      const curTile = this.grid[cur.r][cur.c];
+
+      // 1. 同色方块四向吸附连通（原版 d(i2, i3) 中的同色互锁判定）
+      if (isColor(curTile.kind)) {
+        const neighbors = [
+          { c: cur.c - 1, r: cur.r },
+          { c: cur.c + 1, r: cur.r },
+          { c: cur.c, r: cur.r - 1 },
+          { c: cur.c, r: cur.r + 1 },
+        ];
+        for (const nb of neighbors) {
+          if (nb.c >= 0 && nb.c < COLS && nb.r >= 0 && nb.r < ROWS) {
+            if (!supported[nb.r][nb.c] && this.grid[nb.r][nb.c].kind === curTile.kind) {
+              supported[nb.r][nb.c] = true;
+              supportQueue.push(nb);
+            }
+          }
+        }
+      }
+
+      // 2. 位于受支撑方块正上方的坚固方块，获得重力支撑（原版 as() 中的 cc[q[i5]-1] 判定）
+      if (cur.r > 0) {
+        const aboveR = cur.r - 1;
+        const aboveTile = this.grid[aboveR][cur.c];
+        if (aboveTile.kind !== SpecialType.EMPTY && !supported[aboveR][cur.c]) {
+          supported[aboveR][cur.c] = true;
+          supportQueue.push({ c: cur.c, r: aboveR });
         }
       }
     }
 
-    // 阶段2：更新预警颤动
+    // 阶段2：扫描失去支撑的悬空方块，启动/同步预警颤动
+    for (let r = 0; r < ROWS; r++) {
+      for (let c = 0; c < COLS; c++) {
+        const tile = this.grid[r][c];
+        if (tile.kind === SpecialType.EMPTY || tile.kind === SpecialType.GOAL) continue;
+
+        if (!supported[r][c]) {
+          // 失去支撑：进入颤动预警
+          if (!tile.falling && !tile.shakeWarning) {
+            tile.shakeWarning = true;
+            tile.shakeTimer = 0.38; // 预警抖动时长
+          }
+        } else {
+          // 重新获得支撑（例如下方落稳），取消抖动
+          if (tile.shakeWarning) {
+            tile.shakeWarning = false;
+            tile.shakeVisualX = 0;
+            tile.shakeVisualY = 0;
+          }
+        }
+      }
+    }
+
+    // 阶段3：更新预警颤动计时与插值
     for (let r = 0; r < ROWS; r++) {
       for (let c = 0; c < COLS; c++) {
         const tile = this.grid[r][c];
@@ -470,30 +543,75 @@ export class GridEngine {
         }
 
         if (tile.fallYOffset < 0) {
-          tile.fallYOffset = Math.min(0, tile.fallYOffset + 280 * dt);
+          tile.fallYOffset = Math.min(0, tile.fallYOffset + 320 * dt);
         }
       }
     }
 
-    // 阶段3：下落推进
+    // 阶段4：原版 ax() 下落推进与砸击判定
     for (let r = ROWS - 2; r >= 0; r--) {
       for (let c = 0; c < COLS; c++) {
         const tile = this.grid[r][c];
         if (!tile.falling) continue;
 
-        const below = this.grid[r + 1][c];
-        if (below.kind === SpecialType.EMPTY) {
-          this.grid[r + 1][c] = {
+        const belowR = r + 1;
+        const belowTile = this.grid[belowR][c];
+
+        // 1. 砸中玩家判定（原版 b.java:2354 判定 cc[bL.x][bL.c]）
+        if (playerX !== undefined && playerY !== undefined && belowR === playerY && c === playerX) {
+          onCrush?.();
+          tile.falling = false;
+          tile.landed = true;
+          tile.fallYOffset = 0;
+          continue;
+        }
+
+        // 2. 下方为空白：继续下落 1 格
+        if (belowTile.kind === SpecialType.EMPTY) {
+          this.grid[belowR][c] = {
             ...tile,
             falling: true,
             shakeWarning: false,
+            landed: false,
             fallYOffset: -TILE_SIZE,
           };
           this.grid[r][c] = makeEmpty();
         } else {
+          // 3. 触底/落稳：停止下落，打上 landed 标记以触发同色消除判定
           tile.falling = false;
+          tile.landed = true;
           tile.fallYOffset = 0;
-          this.camera?.triggerShake(1.5, 0.08);
+          this.camera?.triggerShake(2.0, 0.08);
+        }
+      }
+    }
+
+    // 阶段5：原版 as() & l() 落地判定与连击同色消除 (Landing Chain Elimination)
+    for (let r = ROWS - 1; r >= 0; r--) {
+      for (let c = 0; c < COLS; c++) {
+        const tile = this.grid[r][c];
+        if (tile.landed && isColor(tile.kind)) {
+          tile.landed = false;
+          // 原版 b.java:763: if (this.bS > 3) 落地后若同色连通数 >= 4，则自动爆破消除！
+          const cluster = this.floodFill(c, r);
+          if (cluster.length >= 4) {
+            const colorInfo = TILE_COLORS[tile.kind as number];
+            for (const pos of cluster) {
+              this.emitShatter(pos.c, pos.r, colorInfo.main, 7);
+              this.grid[pos.r][pos.c] = makeEmpty();
+            }
+            this.camera?.triggerShake(Math.min(14, 4 + cluster.length * 0.8), 0.22);
+            this.audio.playShatter(cluster.length);
+            this.addFloatingText(
+              c * TILE_SIZE + TILE_SIZE / 2,
+              r * TILE_SIZE - 10,
+              `⚡ 连击消除 ×${cluster.length}`,
+              '#ffd700',
+              22
+            );
+          }
+        } else if (tile.landed) {
+          tile.landed = false;
         }
       }
     }
