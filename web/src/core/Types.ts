@@ -163,11 +163,11 @@ export type TileKind = TileColor | -1 | 9 | 10 | 11 | 12 | 13;
 /**
  * 根据关卡目标深度 (m) 计算通关宝箱所在的行号
  * 玩家初始位置为 row = 2 (depth = 0m)
- * 每深入 1 行深度增加 2m：depth = (row - 2) * 2m
+ * 宽屏现代化换算：1 行 = 1 米（depth = row - 2）
  */
 export function getStageTargetRow(depthM: number): number {
-  if (depthM <= 0) return 52;
-  return 2 + Math.max(10, Math.round(depthM / 2));
+  if (depthM <= 0) return -1;
+  return 2 + Math.max(30, depthM);
 }
 
 export interface Tile {
@@ -296,64 +296,64 @@ export const STAGE_LIST: StageInfo[] = [
   },
   {
     id: 'stage_00', index: 0, name: '普通海域', category: 'special',
-    depthM: 60, prize: 5000, desc: '浅海大陆架试验潜航区',
+    depthM: 80, prize: 8000, desc: '浅海大陆架试验潜航区',
     icon: '🌊', isUnlockedDefault: true
   },
   {
     id: 'stage_01', index: 1, name: '普通陆地', category: 'special',
-    depthM: 80, prize: 8000, desc: '近地表土壤层初级发掘训练',
+    depthM: 120, prize: 12000, desc: '近地表土壤层初级发掘训练',
     icon: '🏜️', isUnlockedDefault: true
   },
 
   // ── 10大深潜锦标赛（挑战金杯） ──
   {
     id: 'cup_03', index: 3, name: '新手杯挑战赛', category: 'cup',
-    depthM: 100, prize: 15000, desc: '入坑基础关卡，夺取首座新手金杯',
+    depthM: 160, prize: 20000, desc: '入坑基础关卡，夺取首座新手金杯',
     icon: '🥉', isUnlockedDefault: true
   },
   {
     id: 'cup_06', index: 6, name: '太平洋杯挑战赛', category: 'cup',
-    depthM: 200, prize: 40000, desc: '太平洋底深层沉积地质挑战',
+    depthM: 250, prize: 40000, desc: '太平洋底深层沉积地质挑战',
     icon: '🥈', isUnlockedDefault: true
   },
   {
     id: 'cup_04', index: 4, name: '勇者杯挑战赛', category: 'cup',
-    depthM: 300, prize: 30000, desc: '进阶坚硬岩层考验，锤炼破岩技巧',
+    depthM: 350, prize: 60000, desc: '进阶坚硬岩层考验，锤炼破岩技巧',
     icon: '⚔️', isUnlockedDefault: false
   },
   {
     id: 'cup_09', index: 9, name: '大西洋杯挑战赛', category: 'cup',
-    depthM: 400, prize: 80000, desc: '大西洋深海裂谷岩层潜入',
+    depthM: 480, prize: 90000, desc: '大西洋深海裂谷岩层潜入',
     icon: '🌊', isUnlockedDefault: false
   },
   {
     id: 'cup_05', index: 5, name: '澳洲杯挑战赛', category: 'cup',
-    depthM: 500, prize: 50000, desc: '澳洲古老坚硬地盾突破',
+    depthM: 600, prize: 120000, desc: '澳洲古老坚硬地盾突破',
     icon: '🦘', isUnlockedDefault: false
   },
   {
     id: 'cup_11', index: 11, name: '海王杯挑战赛', category: 'cup',
-    depthM: 600, prize: 120000, desc: '超深洋壳极限下潜，获取海王勋章',
+    depthM: 750, prize: 150000, desc: '超深洋壳极限下潜，获取海王勋章',
     icon: '🔱', isUnlockedDefault: false
   },
   {
     id: 'cup_07', index: 7, name: '自由女神杯挑战赛', category: 'cup',
-    depthM: 700, prize: 75000, desc: '北美大陆板块深潜探索',
+    depthM: 900, prize: 180000, desc: '北美大陆板块深潜探索',
     icon: '🗽', isUnlockedDefault: false
   },
   {
     id: 'cup_08', index: 8, name: '南美杯挑战赛', category: 'cup',
-    depthM: 1000, prize: 100000, desc: '突破一公里地质深渊大关',
+    depthM: 1100, prize: 220000, desc: '突破一公里地质深渊大关',
     icon: '🏔️', isUnlockedDefault: false
   },
   {
     id: 'cup_10', index: 10, name: '超级杯挑战赛', category: 'cup',
-    depthM: 1200, prize: 125000, desc: '高温高压高密深地严苛考验',
+    depthM: 1350, prize: 280000, desc: '高温高压高密深地严苛考验',
     icon: '🔥', isUnlockedDefault: false
   },
   {
     id: 'cup_12', index: 12, name: '地心杯挑战赛', category: 'cup',
-    depthM: 1500, prize: 150000, desc: '锦标挑战巅峰！争夺最高荣誉地心金杯',
+    depthM: 1600, prize: 350000, desc: '锦标挑战巅峰！争夺最高荣誉地心金杯',
     icon: '🏆', isUnlockedDefault: false
   },
 
@@ -365,49 +365,49 @@ export const STAGE_LIST: StageInfo[] = [
   },
   {
     id: 'ruin_20', index: 20, name: '加勒比海海盗宝藏', category: 'ruin',
-    depthM: 400, prize: 50000, bonusItem: 300, desc: '17世纪黄金舰队埋藏于珊瑚礁地底的秘密宝藏',
+    depthM: 450, prize: 80000, bonusItem: 300, desc: '17世纪黄金舰队埋藏于珊瑚礁地底的秘密宝藏',
     icon: '🏴‍☠️', isUnlockedDefault: false
   },
   {
     id: 'ruin_21', index: 21, name: '红衣主教的宝藏', category: 'ruin',
-    depthM: 400, prize: 50000, bonusItem: 300, desc: '欧洲中世纪教会秘藏的钻石黄金宝箱',
+    depthM: 500, prize: 90000, bonusItem: 300, desc: '欧洲中世纪教会秘藏的钻石黄金宝箱',
     icon: '👑', isUnlockedDefault: false
   },
   {
     id: 'ruin_23', index: 23, name: '所罗门的宝藏', category: 'ruin',
-    depthM: 400, prize: 50000, bonusItem: 300, desc: '古所罗门王神殿深埋的黄金与智者水晶',
+    depthM: 550, prize: 100000, bonusItem: 300, desc: '古所罗门王神殿深埋的黄金与智者水晶',
     icon: '🏺', isUnlockedDefault: false
   },
   {
     id: 'ruin_17', index: 17, name: '亚历山大大帝墓', category: 'ruin',
-    depthM: 500, prize: 50000, bonusItem: 300, desc: '古代欧亚征服者的奢华石棺密室',
+    depthM: 600, prize: 110000, bonusItem: 300, desc: '古代欧亚征服者的奢华石棺密室',
     icon: '🗡️', isUnlockedDefault: false
   },
   {
     id: 'ruin_19', index: 19, name: '成吉思汗墓', category: 'ruin',
-    depthM: 500, prize: 50000, bonusItem: 300, desc: '大草原地下深处不见天日的黄金圣陵',
+    depthM: 650, prize: 120000, bonusItem: 300, desc: '大草原地下深处不见天日的黄金圣陵',
     icon: '🏹', isUnlockedDefault: false
   },
   {
     id: 'ruin_22', index: 22, name: '希特勒的宝藏', category: 'ruin',
-    depthM: 500, prize: 60000, bonusItem: 400, desc: '二战阿尔卑斯山地下秘密掩体藏宝室',
+    depthM: 700, prize: 130000, bonusItem: 400, desc: '二战阿尔卑斯山地下秘密掩体藏宝室',
     icon: '🗝️', isUnlockedDefault: false
   },
   {
     id: 'ruin_15', index: 15, name: '秦始皇陵', category: 'ruin',
-    depthM: 600, prize: 100000, bonusItem: 500, desc: '水银江河与青铜地宫，中华千古一帝陵寝',
+    depthM: 750, prize: 180000, bonusItem: 500, desc: '水银江河与青铜地宫，中华千古一帝陵寝',
     icon: '🏮', isUnlockedDefault: false
   },
   {
     id: 'ruin_16', index: 16, name: '埃及地下古墓', category: 'ruin',
-    depthM: 600, prize: 80000, bonusItem: 400, desc: '尼罗河西岸神秘金字塔下方地底暗室',
+    depthM: 800, prize: 160000, bonusItem: 400, desc: '尼罗河西岸神秘金字塔下方地底暗室',
     icon: '⚱️', isUnlockedDefault: false
   },
 
   // ── 终极关卡与无限深度 ──
   {
     id: 'stage_14', index: 14, name: '地下大陆入口', category: 'special',
-    depthM: 2500, prize: 200000, desc: '真正的凡尔纳地心世界大门！超深地质奇观',
+    depthM: 2000, prize: 500000, desc: '真正的凡尔纳地心世界大门！超深地质奇观',
     icon: '🌋', isUnlockedDefault: false
   },
   {

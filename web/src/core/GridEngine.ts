@@ -92,78 +92,6 @@ function makeBedrockTile(): Tile {
   };
 }
 
-// ── 生成一行新地质内容，并按照原版两阶段漏斗概率嵌入宝物 ──
-function generateRow(depth: number): Tile[] {
-  const row: Tile[] = [];
-  const colors = [TileColor.RED, TileColor.YELLOW, TileColor.BLUE, TileColor.GREEN];
-
-  // 岩石出现率随深度增加
-  const rockChance = 0.04 + depth * 0.0006;
-  const rockMaxDur = Math.min(5, 1 + Math.floor(depth * 0.05));
-
-  for (let c = 0; c < COLS; c++) {
-    const prev = c > 0 ? row[c - 1] : null;
-    const hasAdjacentRock = prev && prev.kind === SpecialType.ROCK;
-
-    if (!hasAdjacentRock && Math.random() < rockChance) {
-      const dur = Math.ceil(Math.random() * rockMaxDur);
-      row.push(makeRock(dur));
-    } else {
-      let color: TileColor;
-      const r = Math.random();
-      if (prev && isColor(prev.kind) && r < 0.22) {
-        color = prev.kind as TileColor;
-      } else {
-        color = colors[Math.floor(Math.random() * 4)];
-      }
-      row.push(makeColorTile(color));
-    }
-  }
-
-  // ── 对标原版 b.java:2807-2828 宝藏与水晶嵌入算法 ──
-  // 在 18 列宽屏中，每行投掷 2 次候选嵌入
-  for (let roll = 0; roll < 2; roll++) {
-    const bG = Math.floor(Math.random() * 8); // 0~7
-    if ((bG & 1) === 0) { // 50% 基础概率进入掉落轮
-      const iNextInt = Math.floor(Math.random() * 32) + 1; // 1 ~ 32
-      const targetCol = Math.floor(Math.random() * COLS);
-
-      if (iNextInt <= 3) {
-        // 法术水晶 (9~16)
-        let crystalId = Math.floor(Math.random() * 8); // 0~7 (CrystalType)
-        // 原版抑制机制：能量蓝水晶二次投掷
-        if (crystalId === CrystalType.ENERGY_BLUE) {
-          crystalId = Math.floor(Math.random() * 8);
-        }
-        row[targetCol] = makeCrystalTile(crystalId as CrystalType);
-      } else if (iNextInt === 5 || iNextInt === 6) {
-        // 即时金币宝藏 (化石、古董、金块、钻石)
-        const treasureRoll = Math.floor(Math.random() * 4);
-        let kind: TreasureKind;
-        let coins: number;
-        switch (treasureRoll) {
-          case 0: kind = TreasureKind.FOSSIL; coins = 1000; break;
-          case 1: kind = TreasureKind.ANTIQUE; coins = 2000; break;
-          case 2: kind = TreasureKind.GOLD_BAR; coins = 1000; break;
-          default: kind = TreasureKind.DIAMOND; coins = 5000; break;
-        }
-        row[targetCol] = makeTreasureTile(kind, coins);
-      } else if (iNextInt === 7) {
-        // 即时能量水晶 (HP+20) 或能量蓝晶
-        if (Math.random() < 0.6) {
-          row[targetCol] = makeTreasureTile(TreasureKind.ENERGY_ORB, 0);
-        } else {
-          row[targetCol] = makeCrystalTile(CrystalType.ENERGY_BLUE);
-        }
-      }
-    }
-  }
-
-  return row;
-}
-
-// ============================================================
-
 export class GridEngine {
   public grid: Tile[][] = [];
   public floatingTexts: FloatingText[] = [];
@@ -177,6 +105,9 @@ export class GridEngine {
 
   // 已挖掘的绝对行深度
   public scrolledRows: number = 0;
+
+  // 能量节奏与防饥渴保障追踪（对标原版 b.java:2808 护航机制）
+  private rowsSinceLastEnergy: number = 0;
 
   constructor(particles: ParticleSystem, audio: SoundEffects) {
     this.particles = particles;
@@ -195,15 +126,207 @@ export class GridEngine {
     this.buildStageWorld();
   }
 
+  /**
+   * 现代化宽屏动态难度地质生成器
+   * 
+   * 结合原版 b.java (ah, F, 2807-2828) 核心机制与 18 列现代化大屏游玩体验：
+   * 1. 四阶段地层演进 (Phase 0 浅层温和, Phase 1 过渡, Phase 2 深层攻坚, Phase 3 终点冲刺)
+   * 2. 动态岩石生成率 (4% ~ 26%) 与耐久度阶梯 (1~5 敲击耐久)
+   * 3. 宽屏通道保护 (至少 2 条通畅下潜信道，且横向连续岩石不超过 2 格，杜绝死锁死墙)
+   * 4. 颜色调色板熵与凝聚力 (浅层 3 色高凝聚 30%，深层 4 色全开策略化)
+   * 5. 动态能量节奏保障 (每 20~25 行稳固投放能量球，维持 100~1600m 整体关卡难度系数均衡)
+   * 6. 智能战术水晶分配 (深层岩石区加权投放黑色水晶与激光闪亮水晶)
+   */
+  public generateRow(depth: number, targetDepth: number, stage?: StageInfo): Tile[] {
+    const row: Tile[] = [];
+    this.rowsSinceLastEnergy++;
+
+    // ── 1. 关卡阶段与难度系数解析 ──
+    const isEndless = targetDepth <= 0;
+    const progressRatio = isEndless
+      ? Math.min(1.0, depth / 800)
+      : Math.min(1.0, Math.max(0, depth / Math.max(1, targetDepth)));
+
+    // 阶段划分：0=浅层(0-25%), 1=过渡层(25-60%), 2=深层(60-85%), 3=冲刺层(85-100%)
+    let phase = 0;
+    if (progressRatio >= 0.85) phase = 3;
+    else if (progressRatio >= 0.60) phase = 2;
+    else if (progressRatio >= 0.25) phase = 1;
+
+    // 关卡类别修饰
+    const category = stage?.category || 'special';
+    const isRuin = category === 'ruin';
+    const isCup = category === 'cup';
+
+    // 关卡阶位 (1 ~ 10)
+    let tier = 2;
+    if (stage) {
+      if (stage.index <= 1) tier = 1;
+      else if (isCup) tier = Math.min(10, Math.max(2, Math.floor(stage.depthM / 150) + 1));
+      else if (isRuin) tier = 6;
+      else if (stage.id === 'stage_14') tier = 10;
+    }
+    if (isEndless) {
+      tier = Math.min(10, 2 + Math.floor(depth / 150));
+    }
+
+    // ── 2. 动态岩石生成概率与耐久分布 ──
+    let rockChance: number;
+    switch (phase) {
+      case 0: // 浅层
+        rockChance = 0.04 + 0.03 * (tier / 10);
+        break;
+      case 1: // 过渡层
+        rockChance = 0.08 + 0.06 * (tier / 10);
+        break;
+      case 2: // 深层核心攻坚
+        rockChance = 0.16 + 0.10 * (tier / 10);
+        if (isRuin) rockChance += 0.04; // 遗迹多石
+        break;
+      case 3: // 终点冲刺轻微回调，形成冲线快感
+      default:
+        rockChance = 0.12 + 0.04 * (tier / 10);
+        break;
+    }
+
+    // 宽屏保护：保证每行至少有 2 个“完全无岩石保护通道”，且连续岩石不超过 2 格
+    let consecutiveRocks = 0;
+    const reservedChannels = [
+      Math.floor(COLS * 0.25) + Math.floor((Math.sin(depth * 0.3) + 1) * 2),
+      Math.floor(COLS * 0.75) + Math.floor((Math.cos(depth * 0.3) + 1) * 2),
+    ];
+
+    // ── 3. 颜色调色板与凝聚力 (对标原版 b.java:2514 ah()) ──
+    let activeColors: TileColor[];
+    let clusterAffinity: number;
+
+    if (tier <= 2 || phase === 0) {
+      // 浅层/初级关卡：3 种活跃色，高凝聚力 (30%)，产生巨幅消除连击
+      const palettePick = (Math.floor(depth / 15)) % 4;
+      activeColors = [
+        TileColor.RED, TileColor.YELLOW, TileColor.BLUE, TileColor.GREEN
+      ].filter((_, idx) => idx !== palettePick);
+      clusterAffinity = 0.30;
+    } else if (phase === 1) {
+      activeColors = [TileColor.RED, TileColor.YELLOW, TileColor.BLUE, TileColor.GREEN];
+      clusterAffinity = 0.22;
+    } else {
+      activeColors = [TileColor.RED, TileColor.YELLOW, TileColor.BLUE, TileColor.GREEN];
+      clusterAffinity = 0.15;
+    }
+
+    for (let c = 0; c < COLS; c++) {
+      const isChannel = reservedChannels.includes(c);
+      const canSpawnRock = !isChannel && consecutiveRocks < 2;
+
+      if (canSpawnRock && Math.random() < rockChance) {
+        let dur = 1;
+        const durRoll = Math.random();
+        if (phase === 0) {
+          dur = (tier >= 5 && durRoll < 0.2) ? 2 : 1;
+        } else if (phase === 1) {
+          if (durRoll < 0.45) dur = 1;
+          else if (durRoll < 0.85) dur = 2;
+          else dur = 3;
+        } else { // phase 2 & 3
+          if (durRoll < 0.25) dur = 1;
+          else if (durRoll < 0.55) dur = 2;
+          else if (durRoll < 0.80) dur = 3;
+          else if (durRoll < 0.93) dur = 4;
+          else dur = 5;
+        }
+
+        row.push(makeRock(dur));
+        consecutiveRocks++;
+      } else {
+        consecutiveRocks = 0;
+        const prev = c > 0 ? row[c - 1] : null;
+        let color: TileColor;
+
+        if (prev && isColor(prev.kind) && Math.random() < clusterAffinity) {
+          color = prev.kind as TileColor;
+        } else {
+          color = activeColors[Math.floor(Math.random() * activeColors.length)];
+        }
+        row.push(makeColorTile(color));
+      }
+    }
+
+    // ── 4. 动态能量节奏保障（维持 HP 生命动力平衡）──
+    // 每 18 ~ 25 行保障投入 1 颗能量补给，抵消基础深度挖掘消耗，skilful 玩家可持续长征
+    const mustDropEnergy = (this.rowsSinceLastEnergy >= 20 && Math.random() < 0.45) || (this.rowsSinceLastEnergy >= 25);
+    if (mustDropEnergy) {
+      this.rowsSinceLastEnergy = 0;
+      const energyCol = Math.floor(Math.random() * COLS);
+      if (Math.random() < 0.7) {
+        row[energyCol] = makeTreasureTile(TreasureKind.ENERGY_ORB, 0);
+      } else {
+        row[energyCol] = makeCrystalTile(CrystalType.ENERGY_BLUE);
+      }
+    }
+
+    // ── 5. 二阶漏斗掉落算法（原版 b.java:2807-2828 进化版）──
+    // 在 18 列宽屏中，每行进行 2~3 次候选嵌入
+    const candidateRolls = isRuin ? 3 : 2;
+    for (let roll = 0; roll < candidateRolls; roll++) {
+      const bG = Math.floor(Math.random() * 8);
+      if ((bG & 1) === 0 || (tier <= 2 && Math.random() < 0.35)) {
+        const iNextInt = Math.floor(Math.random() * 32) + 1;
+        const targetCol = Math.floor(Math.random() * COLS);
+
+        if (iNextInt <= 4) {
+          // 法术水晶：在岩石密集层加权掉落黑色水晶（碎岩）与闪光水晶（激光开路）
+          let crystalId: CrystalType;
+          if (phase >= 2 && Math.random() < 0.45) {
+            crystalId = Math.random() < 0.5 ? CrystalType.BLACK : CrystalType.FLASH;
+          } else {
+            crystalId = Math.floor(Math.random() * 8) as CrystalType;
+            if (crystalId === CrystalType.ENERGY_BLUE && Math.random() < 0.6) {
+              crystalId = Math.floor(Math.random() * 7) as CrystalType;
+            }
+          }
+          row[targetCol] = makeCrystalTile(crystalId);
+        } else if (iNextInt === 5 || iNextInt === 6 || (phase === 3 && iNextInt <= 8)) {
+          // 即时金币宝藏（化石、古董、金块、钻石）
+          let kind: TreasureKind;
+          let coins: number;
+          const treasureRoll = Math.random();
+
+          if (phase >= 2 || isRuin) {
+            if (treasureRoll < 0.35) { kind = TreasureKind.DIAMOND; coins = 5000; }
+            else if (treasureRoll < 0.65) { kind = TreasureKind.GOLD_BAR; coins = 2000; }
+            else if (treasureRoll < 0.85) { kind = TreasureKind.ANTIQUE; coins = 3000; }
+            else { kind = TreasureKind.FOSSIL; coins = 1500; }
+          } else {
+            if (treasureRoll < 0.40) { kind = TreasureKind.FOSSIL; coins = 1000; }
+            else if (treasureRoll < 0.75) { kind = TreasureKind.ANTIQUE; coins = 2000; }
+            else if (treasureRoll < 0.90) { kind = TreasureKind.GOLD_BAR; coins = 1000; }
+            else { kind = TreasureKind.DIAMOND; coins = 5000; }
+          }
+          row[targetCol] = makeTreasureTile(kind, coins);
+        } else if (iNextInt === 7) {
+          if (Math.random() < 0.65) {
+            row[targetCol] = makeTreasureTile(TreasureKind.ENERGY_ORB, 0);
+          } else {
+            row[targetCol] = makeCrystalTile(CrystalType.ENERGY_BLUE);
+          }
+        }
+      }
+    }
+
+    return row;
+  }
+
   // ── 按照关卡要求生成固定深度的地图与最底层的通关宝箱 ──
   public buildStageWorld(stage?: StageInfo): void {
     this.grid = [];
     this.scrolledRows = 0;
     this.activeLasers = [];
     this.activeShockwaves = [];
+    this.rowsSinceLastEnergy = 0;
 
-    const depthM = stage ? stage.depthM : 60;
-    const prize = stage ? stage.prize : 5000;
+    const depthM = stage ? stage.depthM : 80;
+    const prize = stage ? stage.prize : 8000;
     const targetRow = getStageTargetRow(depthM);
 
     // 1. 顶部 3 行空气（地表与起始安全区，机器人站在第 2 行 (COLS/2, 2)，深度为 0m）
@@ -211,24 +334,44 @@ export class GridEngine {
       this.grid.push(Array.from({ length: COLS }, () => makeEmpty()));
     }
 
-    // 2. 地下开采层：从第 3 行一直生成到 targetRow - 1 行
-    for (let r = 3; r < targetRow; r++) {
-      this.grid.push(generateRow(r - 2));
-    }
+    if (targetRow > 0) {
+      // 2. 地下开采层：从第 3 行一直生成到 targetRow - 1 行
+      for (let r = 3; r < targetRow; r++) {
+        const currentDepth = r - 2;
+        this.grid.push(this.generateRow(currentDepth, depthM, stage));
+      }
 
-    // 3. 通关奖励宝箱层（放置在最底部的 targetRow 行，全列均为金碧辉煌的终关通关秘宝箱）
-    const chestRow: Tile[] = [];
-    for (let c = 0; c < COLS; c++) {
-      chestRow.push(makeGoalChestTile(prize));
-    }
-    this.grid.push(chestRow);
+      // 3. 通关奖励宝箱层（放置在最底部的 targetRow 行，全列均为金碧辉煌的终关通关秘宝箱）
+      const chestRow: Tile[] = [];
+      for (let c = 0; c < COLS; c++) {
+        chestRow.push(makeGoalChestTile(prize));
+      }
+      this.grid.push(chestRow);
 
-    // 4. 底部坚不可摧的远古基岩层（支撑最底层宝箱与上方所有物理方块，界定地心极限）
-    const bedrockRow: Tile[] = [];
-    for (let c = 0; c < COLS; c++) {
-      bedrockRow.push(makeBedrockTile());
+      // 4. 底部坚不可摧的远古基岩层（支撑最底层宝箱与上方所有物理方块，界定地心极限）
+      const bedrockRow: Tile[] = [];
+      for (let c = 0; c < COLS; c++) {
+        bedrockRow.push(makeBedrockTile());
+      }
+      this.grid.push(bedrockRow);
+    } else {
+      // 无限深度模式（初始预加载 70 行，向下下潜时动态无缝拓展）
+      for (let r = 3; r < 73; r++) {
+        const currentDepth = r - 2;
+        this.grid.push(this.generateRow(currentDepth, -1, stage));
+      }
     }
-    this.grid.push(bedrockRow);
+  }
+
+  // ── 无限模式动态拓展新地层 ──
+  public appendEndlessRows(count: number, stage?: StageInfo): void {
+    for (let i = 0; i < count; i++) {
+      const currentDepth = this.rows - 2;
+      this.grid.push(this.generateRow(currentDepth, -1, stage));
+    }
+    if (this.camera) {
+      this.camera.setWorldSize(COLS * TILE_SIZE, this.rows * TILE_SIZE);
+    }
   }
 
   // ── 原版 F()：地图向上卷动一行（玩家下潜）──
@@ -236,7 +379,7 @@ export class GridEngine {
     this.scrolledRows++;
     this.grid.shift();
     const depth = this.scrolledRows + this.rows;
-    this.grid.push(generateRow(depth));
+    this.grid.push(this.generateRow(depth, -1));
   }
 
   // ── 原版 s(i, j)：四向递归 Flood Fill 同色消除 ──

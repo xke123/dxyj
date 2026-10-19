@@ -36,7 +36,7 @@ export class PlayerController {
 
     const level = saveData ? Math.max(1, Math.min(20, saveData.level)) : 1;
     const upgrade = UPGRADE_MATRIX[level - 1];
-    const depthM = stage ? stage.depthM : 60;
+    const depthM = stage ? stage.depthM : 80;
     this.targetRow = getStageTargetRow(depthM);
 
     this.state = {
@@ -460,9 +460,9 @@ export class PlayerController {
     this.state.targetX = nx * TILE_SIZE;
     this.state.targetY = ny * TILE_SIZE;
 
-    // 深度更新（原版深度 = (行号 - 2) * 2m，第2行地面为0m）
+    // 深度更新（宽屏现代化标准换算：1 行 = 1 米，第 2 行地面为 0m）
     const absoluteRow = ny + this.engine.scrolledRows;
-    this.state.depth = Math.max(0, (absoluteRow - 2) * 2);
+    this.state.depth = Math.max(0, absoluteRow - 2);
 
     // 通关判断：到达目标行如果碰到宝箱
     if (this.targetRow > 0 && absoluteRow >= this.targetRow && !this.state.won && !this.state.dead) {
@@ -470,6 +470,11 @@ export class PlayerController {
       if (tile?.kind === SpecialType.GOAL) {
         this.collectGoalChest(nx, ny);
       }
+    }
+
+    // 无限深度模式动态追加新行并拓展摄像机视界
+    if (this.targetRow <= 0 && ny >= this.engine.rows - 20) {
+      this.engine.appendEndlessRows(30, this.stage);
     }
   }
 

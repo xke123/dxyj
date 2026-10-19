@@ -82,20 +82,20 @@ export class CanvasRenderer {
     ctx.lineWidth = 3;
     ctx.strokeRect(0, 0, worldW, worldH);
 
-    // 深度分界线（每8行一条虚线）
+    // 深度分界线（每10行一条虚线与标尺，对应 10m、20m、30m...）
     ctx.setLineDash([3, 5]);
     ctx.strokeStyle = 'rgba(255,255,255,0.06)';
     ctx.lineWidth = 1;
-    ctx.fillStyle = 'rgba(255,255,255,0.12)';
-    ctx.font = '10px monospace';
+    ctx.fillStyle = 'rgba(255,255,255,0.14)';
+    ctx.font = '11px monospace';
 
-    for (let r = 8; r < this.engine.rows; r += 8) {
+    for (let r = 12; r < this.engine.rows; r += 10) {
       const y = r * TILE_SIZE;
       ctx.beginPath();
       ctx.moveTo(0, y);
       ctx.lineTo(worldW, y);
       ctx.stroke();
-      const depthM = (r - 2) * 2;
+      const depthM = r - 2;
       if (depthM > 0) ctx.fillText(`${depthM}m`, 6, y - 3);
     }
     ctx.setLineDash([]);
@@ -522,8 +522,8 @@ export class CanvasRenderer {
     ctx.fillStyle = '#ffd700';
     ctx.font = 'bold 12px sans-serif';
     ctx.textAlign = 'right';
-    const prize = this.playerCtrl.stage?.prize ?? 5000;
-    const depthM = this.playerCtrl.stage?.depthM ?? 60;
+    const prize = this.playerCtrl.stage?.prize ?? 8000;
+    const depthM = this.playerCtrl.stage?.depthM ?? 80;
     ctx.fillText(`🏆 终点通关宝箱 ${depthM}m（奖金 +${prize.toLocaleString()}）`, worldW - 8, y - 6);
     ctx.restore();
   }
