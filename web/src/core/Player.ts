@@ -10,8 +10,8 @@
 
 import {
   COLS, ROWS, TILE_SIZE, SpecialType, CrystalType, TreasureKind,
-  CRYSTAL_METAS,
-  type PlayerState,
+  CRYSTAL_METAS, UPGRADE_MATRIX,
+  type PlayerState, type StageInfo, type SaveData,
 } from './Types';
 import { GridEngine } from './GridEngine';
 
@@ -27,12 +27,15 @@ export class PlayerController {
 
   public targetRow: number;
 
-  constructor(engine: GridEngine, targetRow: number) {
+  constructor(engine: GridEngine, stage?: StageInfo, saveData?: SaveData) {
     this.engine = engine;
-    this.targetRow = targetRow;
-
     const startCol = Math.floor(COLS / 2);
     const startRow = 2;
+
+    const level = saveData ? Math.max(1, Math.min(20, saveData.level)) : 1;
+    const upgrade = UPGRADE_MATRIX[level - 1];
+    const depthM = stage ? stage.depthM : 120;
+    this.targetRow = depthM > 0 ? Math.ceil(depthM / 2) : -1;
 
     this.state = {
       gridX: startCol,
@@ -41,19 +44,18 @@ export class PlayerController {
       y: startRow * TILE_SIZE,
       targetX: startCol * TILE_SIZE,
       targetY: startRow * TILE_SIZE,
-      hp: 100,
-      maxHp: 100,
-      power: 10,
-      coins: 0,
+      hp: upgrade.maxHp,
+      maxHp: upgrade.maxHp,
+      power: upgrade.power,
+      coins: saveData ? saveData.coins : 0,
       sessionCoins: 0,
-      // 开局赠送基础水晶道具各1个方便体验与测试
-      crystals: [1, 1, 1, 1, 1, 1, 1, 1],
-      maxBackpack: 10,
+      crystals: saveData ? [...saveData.crystals] : [1, 1, 1, 1, 1, 1, 1, 1],
+      maxBackpack: upgrade.backpack,
       facing: 'down',
       isDigging: false,
       digAnimTimer: 0,
       depth: 0,
-      targetDepth: targetRow * 2,
+      targetDepth: depthM,
       won: false,
       dead: false,
     };
@@ -336,11 +338,18 @@ export class PlayerController {
     const absoluteRow = ny + this.engine.scrolledRows;
     this.state.depth = Math.max(0, (absoluteRow - 2) * 2);
 
-    // 通关判断
-    if (absoluteRow >= this.targetRow && !this.state.won && !this.state.dead) {
+    // 通关判断（有限深度关卡）
+    if (this.targetRow > 0 && absoluteRow >= this.targetRow && !this.state.won && !this.state.dead) {
       this.state.won = true;
       this.onWin?.();
     }
+  }
+
+  // 主动安全撤离回地面（保留收集到的所有 sessionCoins）
+  public evacuate(): void {
+    if (this.state.dead || this.state.won) return;
+    this.state.won = true;
+    this.onWin?.();
   }
 
   // ── 每帧更新（平滑插值 + 重力坠落）──

@@ -351,6 +351,7 @@ export class CanvasRenderer {
 
   // ── 目标深度指示线 ──
   private drawTargetDepthIndicator(ctx: CanvasRenderingContext2D): void {
+    if (this.playerCtrl.targetRow <= 0) return;
     const targetAbsRow = this.playerCtrl.targetRow - this.engine.scrolledRows;
     if (targetAbsRow < 0 || targetAbsRow >= ROWS) return;
 

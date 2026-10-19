@@ -3,78 +3,288 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
-  <title>地心游记 — 核心玩法与道具系统</title>
+  <title>地心游记 — 经典全链路复刻版</title>
   <link rel="stylesheet" href="/src/style.css" />
 </head>
 <body>
   <div id="game-app">
-    <canvas id="game-canvas"></canvas>
 
-    <!-- 顶部 HUD（对应原版状态栏） -->
-    <header id="game-hud">
-      <!-- 生命力（对应原版 HP/Energy） -->
-      <div class="hud-block hp-block">
-        <span class="hud-label">⚡ 能量</span>
-        <div class="hp-bar-bg">
-          <div class="hp-bar-fill" id="hp-fill"></div>
+    <!-- ================= 1. 主界面屏幕 (Title Screen) ================= -->
+    <section id="screen-title" class="screen">
+      <div class="title-container">
+        <div class="title-logo-badge">
+          <span class="logo-icon">⛏️</span>
+          <span class="logo-sub">JOURNEY TO THE CENTER OF THE EARTH</span>
         </div>
-        <span class="hud-val" id="hp-text">100/100</span>
+        <h1 class="game-title">地 心 游 记</h1>
+        <p class="game-subtitle">24 大世界探险点 · 20 阶机体强化 · 八大功能水晶全法术</p>
+
+        <!-- 玩家存档状态卡片 -->
+        <div class="save-status-card" id="title-status-card">
+          <div class="status-item">
+            <span class="status-label">机体等级</span>
+            <span class="status-val" id="title-robot-lvl">Lv.1</span>
+          </div>
+          <div class="status-sep"></div>
+          <div class="status-item">
+            <span class="status-label">可用资金</span>
+            <span class="status-val gold" id="title-coins">0</span>
+          </div>
+          <div class="status-sep"></div>
+          <div class="status-item">
+            <span class="status-label">发掘区域</span>
+            <span class="status-val accent" id="title-explored">0/24</span>
+          </div>
+        </div>
+
+        <!-- 主菜单导航按钮 -->
+        <div class="title-menu">
+          <button id="btn-start-expedition" class="menu-btn primary-btn">
+            <span class="btn-icon">🌍</span> 进入探险大地图
+          </button>
+          <button id="btn-open-base" class="menu-btn secondary-btn">
+            <span class="btn-icon">🏢</span> 机器人研发基地
+          </button>
+          <div class="title-btn-group">
+            <button id="btn-open-guide" class="menu-btn tertiary-btn">
+              <span class="btn-icon">📖</span> 探险手册
+            </button>
+            <button id="btn-reset-save" class="menu-btn tertiary-btn danger">
+              <span class="btn-icon">🔄</span> 重置存档
+            </button>
+          </div>
+        </div>
+
+        <footer class="title-footer">
+          <span>经典 J2ME 架构重构 · 现代宽屏自适应高保真体验</span>
+        </footer>
+      </div>
+    </section>
+
+    <!-- ================= 2. 全球探险大地图屏幕 (World Map) ================= -->
+    <section id="screen-map" class="screen screen-hidden">
+      <header class="view-header">
+        <div class="view-header-left">
+          <button id="btn-map-back-title" class="nav-btn">◀ 返回主界面</button>
+          <h2 class="view-title">全球探险大地图</h2>
+        </div>
+        <div class="view-header-right">
+          <div class="header-badge">
+            <span class="badge-label">💰 资金</span>
+            <span class="badge-val gold" id="map-coins">0</span>
+          </div>
+          <div class="header-badge">
+            <span class="badge-label">🤖 机体</span>
+            <span class="badge-val accent" id="map-robot-lvl">Lv.1</span>
+          </div>
+          <button id="btn-map-to-base" class="base-shortcut-btn">🏢 进入研发基地</button>
+        </div>
+      </header>
+
+      <!-- 关卡分类筛选器 -->
+      <nav class="map-category-nav">
+        <button class="cat-btn active" data-cat="all">全部探索点 (24)</button>
+        <button class="cat-btn" data-cat="cup">🏆 锦标挑战杯 (10)</button>
+        <button class="cat-btn" data-cat="ruin">🏛️ 古代遗迹秘境 (9)</button>
+        <button class="cat-btn" data-cat="special">🌋 特殊与无尽模式 (5)</button>
+      </nav>
+
+      <!-- 关卡卡片网格列表 -->
+      <main class="map-grid-container">
+        <div class="stage-grid" id="stage-grid">
+          <!-- 关卡卡片由 main.ts 动态挂载 -->
+        </div>
+      </main>
+    </section>
+
+    <!-- ================= 3. 机器人研发基地屏幕 (Base) ================= -->
+    <section id="screen-base" class="screen screen-hidden">
+      <header class="view-header">
+        <div class="view-header-left">
+          <button id="btn-base-back-map" class="nav-btn">◀ 返回探险大地图</button>
+          <h2 class="view-title">机器人研发母港</h2>
+        </div>
+        <div class="view-header-right">
+          <div class="header-badge">
+            <span class="badge-label">💰 账户资金</span>
+            <span class="badge-val gold" id="base-coins">0</span>
+          </div>
+          <div class="header-badge">
+            <span class="badge-label">🎒 背包使用</span>
+            <span class="badge-val" id="base-bag">0/10</span>
+          </div>
+        </div>
+      </header>
+
+      <div class="base-content-grid">
+        <!-- 左侧：20阶机体强化工坊 -->
+        <div class="base-card workshop-card">
+          <div class="card-header">
+            <h3>🤖 机体强化工作台</h3>
+            <span class="level-tag" id="robot-level-tag">Lv. 1 / 20</span>
+          </div>
+
+          <div class="robot-preview-box">
+            <div class="robot-avatar">
+              <span class="avatar-icon">🤖</span>
+            </div>
+            <div class="robot-stats-matrix">
+              <div class="stat-row">
+                <span class="stat-name">⚡ 最大生命体力 (HP)</span>
+                <span class="stat-values" id="stat-hp-diff">100 <span class="arrow">➜</span> 105</span>
+              </div>
+              <div class="stat-bar-bg"><div class="stat-bar-fill" id="bar-hp" style="width: 50%;"></div></div>
+
+              <div class="stat-row">
+                <span class="stat-name">🎒 道具栏背包容量</span>
+                <span class="stat-values" id="stat-bag-diff">10格 <span class="arrow">➜</span> 11格</span>
+              </div>
+              <div class="stat-bar-bg"><div class="stat-bar-fill" id="bar-bag" style="width: 33%;"></div></div>
+
+              <div class="stat-row">
+                <span class="stat-name">⛏️ 钻头破岩动力 (Power)</span>
+                <span class="stat-values" id="stat-power-diff">10 <span class="arrow">➜</span> 11</span>
+              </div>
+              <div class="stat-bar-bg"><div class="stat-bar-fill" id="bar-power" style="width: 33%;"></div></div>
+            </div>
+          </div>
+
+          <div class="workshop-action-box">
+            <div class="cost-info">
+              <span class="cost-label">升级研发费用:</span>
+              <span class="cost-val gold" id="upgrade-cost">20,000 金币</span>
+            </div>
+            <button id="btn-upgrade-robot" class="upgrade-btn">
+              ⚡ 立即强化升级
+            </button>
+          </div>
+        </div>
+
+        <!-- 右侧：水晶道具买卖商店 -->
+        <div class="base-card shop-card">
+          <div class="card-header">
+            <h3>💎 8 大水晶法术交易所</h3>
+            <div class="shop-tabs">
+              <button id="tab-buy" class="shop-tab active">买入道具</button>
+              <button id="tab-sell" class="shop-tab">回收卖出</button>
+            </div>
+          </div>
+
+          <div class="crystal-trade-list" id="crystal-trade-list">
+            <!-- 8大水晶卡片由 main.ts 动态填充 -->
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ================= 4. 挖掘实战屏幕 (In-Game Canvas) ================= -->
+    <section id="screen-game" class="screen screen-hidden">
+      <canvas id="game-canvas"></canvas>
+
+      <!-- 顶部 HUD 状态栏 -->
+      <header id="game-hud">
+        <!-- 生命力 -->
+        <div class="hud-block hp-block">
+          <span class="hud-label">⚡ 能量</span>
+          <div class="hp-bar-bg">
+            <div class="hp-bar-fill" id="hp-fill"></div>
+          </div>
+          <span class="hud-val" id="hp-text">100/100</span>
+        </div>
+
+        <!-- 深度 -->
+        <div class="hud-block depth-block">
+          <span class="hud-label">📡 深度</span>
+          <span class="hud-val accent" id="depth-val">0m</span>
+          <span class="hud-sep">/</span>
+          <span class="hud-target" id="target-depth-val">120m</span>
+        </div>
+
+        <!-- 金币 -->
+        <div class="hud-block coins-block">
+          <span class="hud-label">💰 本次/总计</span>
+          <span class="hud-val gold" id="coins-val">0</span>
+        </div>
+
+        <!-- 道具容量 -->
+        <div class="hud-block bag-block">
+          <span class="hud-label">🎒 道具</span>
+          <span class="hud-val" id="bag-val">8/10</span>
+        </div>
+
+        <!-- 主动撤离按钮 -->
+        <button id="btn-evacuate" class="hud-action-btn" title="安全返回地面并保留本次收集的全部金币">
+          🚁 安全撤离
+        </button>
+      </header>
+
+      <!-- 底部水晶道具快捷释放栏 -->
+      <div id="item-bar-container">
+        <div id="item-bar" class="item-bar">
+          <!-- 8个槽位由 main.ts 动态挂载 -->
+        </div>
       </div>
 
-      <!-- 深度 -->
-      <div class="hud-block depth-block">
-        <span class="hud-label">📡 深度</span>
-        <span class="hud-val accent" id="depth-val">0m</span>
-        <span class="hud-sep">/</span>
-        <span class="hud-target" id="target-depth-val">120m</span>
+      <!-- 结算覆盖层 (通关 / 死亡 / 撤离) -->
+      <div id="overlay" class="overlay-hidden">
+        <div class="overlay-card">
+          <h2 id="overlay-title"></h2>
+          <div id="overlay-body"></div>
+          <div class="overlay-btn-group" id="overlay-btn-group">
+            <button id="btn-overlay-map" class="btn-primary">返回大地图</button>
+            <button id="btn-overlay-retry" class="btn-secondary">再次挑战</button>
+            <button id="btn-overlay-base" class="btn-tertiary">前往基地</button>
+          </div>
+        </div>
       </div>
 
-      <!-- 金币（对应原版 coins） -->
-      <div class="hud-block coins-block">
-        <span class="hud-label">💰 金币</span>
-        <span class="hud-val gold" id="coins-val">0</span>
+      <!-- 触屏虚拟按键 -->
+      <div id="touch-controls">
+        <div class="dpad">
+          <button id="btn-up"    class="dpad-btn dpad-up" aria-label="向上">▲</button>
+          <button id="btn-left"  class="dpad-btn dpad-left" aria-label="向左">◀</button>
+          <button id="btn-dig"   class="dpad-btn dpad-center" aria-label="挖掘">⛏</button>
+          <button id="btn-right" class="dpad-btn dpad-right" aria-label="向右">▶</button>
+          <button id="btn-down"  class="dpad-btn dpad-down" aria-label="向下">▼</button>
+        </div>
       </div>
 
-      <!-- 背包容量统计 -->
-      <div class="hud-block bag-block">
-        <span class="hud-label">🎒 道具</span>
-        <span class="hud-val" id="bag-val">8/10</span>
+      <!-- 键盘操作提示 -->
+      <div id="kb-hint">
+        <span class="kb">WASD/方向键</span> 移动 &nbsp;
+        <span class="kb">空格/J</span> 挖掘 &nbsp;
+        <span class="kb">1~8</span> 释放水晶 &nbsp;
+        <span class="kb">ESC</span> 撤离
       </div>
-    </header>
+    </section>
 
-    <!-- 水晶道具快捷栏（底部中央：支持触控点击与数字键 1~8 快速释放） -->
-    <div id="item-bar-container">
-      <div id="item-bar" class="item-bar">
-        <!-- 8个水晶槽由 main.ts 动态填充或更新 -->
+    <!-- ================= 5. 探险手册说明弹窗 (Guide Modal) ================= -->
+    <div id="modal-guide" class="modal-overlay modal-hidden">
+      <div class="modal-card">
+        <div class="modal-header">
+          <h3>📖 《地心游记》探险手册</h3>
+          <button id="btn-close-guide" class="modal-close-btn">&times;</button>
+        </div>
+        <div class="modal-body">
+          <h4>1. 核心玩法规则</h4>
+          <p>• <strong>移动与挖掘</strong>：机器人在空格中自由移动；挖掘方块会扣除 <strong>1 点能量</strong>。</p>
+          <p>• <strong>四向 Flood Fill</strong>：挖掘彩色方块时，所有相连的同色方块一同连锁消除，消除后上方方块不自动掉落。</p>
+          <p>• <strong>数字岩石</strong>：岩石具有 1~5 点耐久，需要根据机器人钻头动力多次击打才能粉碎。</p>
+          <p>• <strong>生命耗尽惩罚</strong>：当能量归零时，机器人力竭损坏被传回地面，本次挖掘收集的金币全部丢失！请善用能量蓝晶或安全撤离。</p>
+
+          <h4>2. 8 大功能水晶技能</h4>
+          <p>• <strong>红/黄/蓝/绿水晶</strong>：全屏粉碎视野内对应的所有单色方块。</p>
+          <p>• <strong>黑色水晶</strong>：全屏粉碎视野内所有坚硬数字岩石。</p>
+          <p>• <strong>闪亮水晶</strong>：垂直向下发射强力贯穿激光，瞬时打通 14 格深度的垂直滑降深渊。</p>
+          <p>• <strong>震荡水晶</strong>：以机体为中心触发大范围地震波，全向摧毁周围方块与岩石。</p>
+          <p>• <strong>能量蓝晶</strong>：即时恢复 20 点生命体力，深潜关键急救药。</p>
+
+          <h4>3. 全球 24 大关卡与终极目标</h4>
+          <p>• 参与 10 大深潜锦标挑战赛夺取挑战金杯，探索 9 大世界古代遗迹挖掘巨额黄金，最终开启深度达 2500M 的<strong>地下大陆入口</strong>，揭开真正的地心世界！</p>
+        </div>
       </div>
     </div>
 
-    <!-- 通关/失败覆盖层 -->
-    <div id="overlay" class="overlay-hidden">
-      <div class="overlay-card">
-        <h2 id="overlay-title"></h2>
-        <div id="overlay-body"></div>
-        <button id="btn-restart" class="btn-restart">再次挑战</button>
-      </div>
-    </div>
-
-    <!-- 虚拟方向键（移动端/触屏） -->
-    <div id="touch-controls">
-      <div class="dpad">
-        <button id="btn-up"    class="dpad-btn dpad-up" aria-label="向上">▲</button>
-        <button id="btn-left"  class="dpad-btn dpad-left" aria-label="向左">◀</button>
-        <button id="btn-dig"   class="dpad-btn dpad-center" aria-label="挖掘">⛏</button>
-        <button id="btn-right" class="dpad-btn dpad-right" aria-label="向右">▶</button>
-        <button id="btn-down"  class="dpad-btn dpad-down" aria-label="向下">▼</button>
-      </div>
-    </div>
-
-    <!-- 键盘与操作提示 -->
-    <div id="kb-hint">
-      <span class="kb">WASD/方向键</span> 移动 &nbsp;
-      <span class="kb">空格/J/5</span> 挖掘 &nbsp;
-      <span class="kb">数字 1~8</span> 快捷释放水晶
-    </div>
   </div>
 
   <script type="module" src="/src/main.ts"></script>

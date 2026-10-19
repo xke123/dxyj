@@ -1,14 +1,11 @@
 // ===================================================================
-// 原版《地心游记》核心数值 —— 现代宽屏适配版
-// 原版: 8列×27行; 本版: 18列×80行（保留高清宽屏）
+// 原版《地心游记》核心数值与全关卡体系 —— 现代宽屏完整版
+// 原版: 8列×27行; 本版: 18列×80行（保留高清宽屏视野）
 // ===================================================================
 
 export const COLS = 18;
 export const ROWS = 80;
 export const TILE_SIZE = 44;
-
-// 目标深度：挖到第多少行算通关（原版 bn）
-export const TARGET_ROW = 60;
 
 // ── 砖块类型（严格对应原版 b.java f.f 字段）──
 export const TileColor = {
@@ -163,22 +160,20 @@ export type SpecialType = typeof SpecialType[keyof typeof SpecialType];
 export type TileKind = TileColor | -1 | 9 | 10 | 11 | 12;
 
 export interface Tile {
-  kind: TileKind;        // 方块类型（对应原版 f.f）
-  durability: number;    // 剩余耐久（原版 f.c，岩石专用）
+  kind: TileKind;
+  durability: number;
   maxDurability: number;
 
-  // 物理状态（对应原版 ax() 状态机）
-  shakeWarning: boolean; // 预警颤抖阶段（原版 f.h）
-  shakeTimer: number;    // 颤抖计时
-  shakeVisualX: number;  // 渲染偏移
+  shakeWarning: boolean;
+  shakeTimer: number;
+  shakeVisualX: number;
   shakeVisualY: number;
-  falling: boolean;      // 正在下落（原版 f.a）
-  fallYOffset: number;   // 像素级平滑下坠偏移
+  falling: boolean;
+  fallYOffset: number;
 
-  // 水晶道具与宝藏扩展
   crystalType?: CrystalType;
   treasureKind?: TreasureKind;
-  coins?: number;        // 宝藏价值（金币）
+  coins?: number;
 }
 
 // ── 激光与地震视觉特效结构 ──
@@ -203,30 +198,28 @@ export interface ActiveShockwave {
 export interface PlayerState {
   gridX: number;
   gridY: number;
-  x: number;          // 渲染像素 X（平滑插值）
-  y: number;          // 渲染像素 Y
+  x: number;
+  y: number;
   targetX: number;
   targetY: number;
 
-  hp: number;         // 当前生命力（对应原版 e.I）
-  maxHp: number;      // 最大生命力（对应原版 e.J，初始100）
-  power: number;      // 钻头动力（对应原版 e.j，初始10）
-  coins: number;      // 当前持有金币（对应原版 e.C）
-  sessionCoins: number; // 本次下潜收集的金币（HP归零时清空）
+  hp: number;
+  maxHp: number;
+  power: number;
+  coins: number;
+  sessionCoins: number;
 
-  // 道具背包（对应原版 bL.M[8] 与 bL.j 背包上限）
-  crystals: number[]; // 8种水晶的数量
-  maxBackpack: number; // 背包最大容量（初始10）
+  crystals: number[];
+  maxBackpack: number;
 
   facing: 'left' | 'right' | 'up' | 'down';
   isDigging: boolean;
   digAnimTimer: number;
 
-  // 游戏状态
-  depth: number;       // 当前挖掘深度（米）
-  targetDepth: number; // 本次目标深度（米）
-  won: boolean;        // 是否通关
-  dead: boolean;       // HP耗尽，正在传送回地面
+  depth: number;
+  targetDepth: number;
+  won: boolean;
+  dead: boolean;
 }
 
 // 浮动文字（得分/拾取提示）
@@ -250,9 +243,206 @@ export const TILE_COLORS: Record<number, { main: string; light: string; dark: st
 
 // 岩石颜色（根据剩余耐久变化）
 export const ROCK_COLORS: string[] = [
-  '#455a64', // dur=1 快裂了（偏浅）
-  '#546e7a', // dur=2
-  '#607d8b', // dur=3（默认）
-  '#78909c', // dur=4
-  '#90a4ae', // dur=5（最硬）
+  '#455a64',
+  '#546e7a',
+  '#607d8b',
+  '#78909c',
+  '#90a4ae',
 ];
+
+// ===================================================================
+// 全球探险地图与 24 大关卡体系（对标原版 d.java:181-182 Q, o）
+// ===================================================================
+
+export type StageCategory = 'cup' | 'ruin' | 'special' | 'base';
+
+export interface StageInfo {
+  id: string;
+  index: number;
+  name: string;
+  category: StageCategory;
+  depthM: number;       // 目标深度（米，-1 为无限深度，0 为基地）
+  prize: number;        // 通关奖金（金币）
+  bonusItem?: number;   // 额外物品/加成
+  desc: string;
+  icon: string;
+  isUnlockedDefault: boolean;
+}
+
+export const STAGE_LIST: StageInfo[] = [
+  // ── 研发母港与常规训练 ──
+  {
+    id: 'stage_02', index: 2, name: '机器人研发基地', category: 'base',
+    depthM: 0, prize: 0, desc: '商业母港：升级机体属性，买卖水晶道具',
+    icon: '🏢', isUnlockedDefault: true
+  },
+  {
+    id: 'stage_00', index: 0, name: '普通海域', category: 'special',
+    depthM: 60, prize: 5000, desc: '浅海大陆架试验潜航区',
+    icon: '🌊', isUnlockedDefault: true
+  },
+  {
+    id: 'stage_01', index: 1, name: '普通陆地', category: 'special',
+    depthM: 80, prize: 8000, desc: '近地表土壤层初级发掘训练',
+    icon: '🏜️', isUnlockedDefault: true
+  },
+
+  // ── 10大深潜锦标赛（挑战金杯） ──
+  {
+    id: 'cup_03', index: 3, name: '新手杯挑战赛', category: 'cup',
+    depthM: 100, prize: 15000, desc: '入坑基础关卡，夺取首座新手金杯',
+    icon: '🥉', isUnlockedDefault: true
+  },
+  {
+    id: 'cup_06', index: 6, name: '太平洋杯挑战赛', category: 'cup',
+    depthM: 200, prize: 40000, desc: '太平洋底深层沉积地质挑战',
+    icon: '🥈', isUnlockedDefault: true
+  },
+  {
+    id: 'cup_04', index: 4, name: '勇者杯挑战赛', category: 'cup',
+    depthM: 300, prize: 30000, desc: '进阶坚硬岩层考验，锤炼破岩技巧',
+    icon: '⚔️', isUnlockedDefault: false
+  },
+  {
+    id: 'cup_09', index: 9, name: '大西洋杯挑战赛', category: 'cup',
+    depthM: 400, prize: 80000, desc: '大西洋深海裂谷岩层潜入',
+    icon: '🌊', isUnlockedDefault: false
+  },
+  {
+    id: 'cup_05', index: 5, name: '澳洲杯挑战赛', category: 'cup',
+    depthM: 500, prize: 50000, desc: '澳洲古老坚硬地盾突破',
+    icon: '🦘', isUnlockedDefault: false
+  },
+  {
+    id: 'cup_11', index: 11, name: '海王杯挑战赛', category: 'cup',
+    depthM: 600, prize: 120000, desc: '超深洋壳极限下潜，获取海王勋章',
+    icon: '🔱', isUnlockedDefault: false
+  },
+  {
+    id: 'cup_07', index: 7, name: '自由女神杯挑战赛', category: 'cup',
+    depthM: 700, prize: 75000, desc: '北美大陆板块深潜探索',
+    icon: '🗽', isUnlockedDefault: false
+  },
+  {
+    id: 'cup_08', index: 8, name: '南美杯挑战赛', category: 'cup',
+    depthM: 1000, prize: 100000, desc: '突破一公里地质深渊大关',
+    icon: '🏔️', isUnlockedDefault: false
+  },
+  {
+    id: 'cup_10', index: 10, name: '超级杯挑战赛', category: 'cup',
+    depthM: 1200, prize: 125000, desc: '高温高压高密深地严苛考验',
+    icon: '🔥', isUnlockedDefault: false
+  },
+  {
+    id: 'cup_12', index: 12, name: '地心杯挑战赛', category: 'cup',
+    depthM: 1500, prize: 150000, desc: '锦标挑战巅峰！争夺最高荣誉地心金杯',
+    icon: '🏆', isUnlockedDefault: false
+  },
+
+  // ── 9大世界古代遗迹与世界秘境（单次发掘，重奖） ──
+  {
+    id: 'ruin_18', index: 18, name: '亚特兰蒂斯古城', category: 'ruin',
+    depthM: 400, prize: 150000, bonusItem: 400, desc: '沉睡于深海的史前超文明古都',
+    icon: '🏛️', isUnlockedDefault: false
+  },
+  {
+    id: 'ruin_20', index: 20, name: '加勒比海海盗宝藏', category: 'ruin',
+    depthM: 400, prize: 50000, bonusItem: 300, desc: '17世纪黄金舰队埋藏于珊瑚礁地底的秘密宝藏',
+    icon: '🏴‍☠️', isUnlockedDefault: false
+  },
+  {
+    id: 'ruin_21', index: 21, name: '红衣主教的宝藏', category: 'ruin',
+    depthM: 400, prize: 50000, bonusItem: 300, desc: '欧洲中世纪教会秘藏的钻石黄金宝箱',
+    icon: '👑', isUnlockedDefault: false
+  },
+  {
+    id: 'ruin_23', index: 23, name: '所罗门的宝藏', category: 'ruin',
+    depthM: 400, prize: 50000, bonusItem: 300, desc: '古所罗门王神殿深埋的黄金与智者水晶',
+    icon: '🏺', isUnlockedDefault: false
+  },
+  {
+    id: 'ruin_17', index: 17, name: '亚历山大大帝墓', category: 'ruin',
+    depthM: 500, prize: 50000, bonusItem: 300, desc: '古代欧亚征服者的奢华石棺密室',
+    icon: '🗡️', isUnlockedDefault: false
+  },
+  {
+    id: 'ruin_19', index: 19, name: '成吉思汗墓', category: 'ruin',
+    depthM: 500, prize: 50000, bonusItem: 300, desc: '大草原地下深处不见天日的黄金圣陵',
+    icon: '🏹', isUnlockedDefault: false
+  },
+  {
+    id: 'ruin_22', index: 22, name: '希特勒的宝藏', category: 'ruin',
+    depthM: 500, prize: 60000, bonusItem: 400, desc: '二战阿尔卑斯山地下秘密掩体藏宝室',
+    icon: '🗝️', isUnlockedDefault: false
+  },
+  {
+    id: 'ruin_15', index: 15, name: '秦始皇陵', category: 'ruin',
+    depthM: 600, prize: 100000, bonusItem: 500, desc: '水银江河与青铜地宫，中华千古一帝陵寝',
+    icon: '🏮', isUnlockedDefault: false
+  },
+  {
+    id: 'ruin_16', index: 16, name: '埃及地下古墓', category: 'ruin',
+    depthM: 600, prize: 80000, bonusItem: 400, desc: '尼罗河西岸神秘金字塔下方地底暗室',
+    icon: '⚱️', isUnlockedDefault: false
+  },
+
+  // ── 终极关卡与无限深度 ──
+  {
+    id: 'stage_14', index: 14, name: '地下大陆入口', category: 'special',
+    depthM: 2500, prize: 200000, desc: '真正的凡尔纳地心世界大门！超深地质奇观',
+    icon: '🌋', isUnlockedDefault: false
+  },
+  {
+    id: 'stage_13', index: 13, name: '极限挑战, 无限深度', category: 'special',
+    depthM: -1, prize: 0, desc: '无尽深渊潜航，考验机体极致续航与钻探记录',
+    icon: '♾️', isUnlockedDefault: true
+  },
+];
+
+// ===================================================================
+// 机器人 20 阶升级矩阵数据（对标原版 d.java:183 F）
+// 格式：[MaxHP, 背包容量, 升级花费]
+// ===================================================================
+
+export interface RobotUpgrade {
+  level: number;
+  maxHp: number;
+  backpack: number;
+  power: number;
+  cost: number;
+}
+
+export const UPGRADE_MATRIX: RobotUpgrade[] = [
+  { level: 1,  maxHp: 100, backpack: 10, power: 10, cost: 0 },
+  { level: 2,  maxHp: 105, backpack: 11, power: 11, cost: 20000 },
+  { level: 3,  maxHp: 110, backpack: 12, power: 12, cost: 30000 },
+  { level: 4,  maxHp: 115, backpack: 13, power: 13, cost: 50000 },
+  { level: 5,  maxHp: 120, backpack: 14, power: 14, cost: 50000 },
+  { level: 6,  maxHp: 125, backpack: 15, power: 15, cost: 50000 },
+  { level: 7,  maxHp: 130, backpack: 16, power: 16, cost: 100000 },
+  { level: 8,  maxHp: 135, backpack: 17, power: 17, cost: 100000 },
+  { level: 9,  maxHp: 140, backpack: 18, power: 18, cost: 100000 },
+  { level: 10, maxHp: 145, backpack: 19, power: 19, cost: 150000 },
+  { level: 11, maxHp: 150, backpack: 20, power: 20, cost: 150000 },
+  { level: 12, maxHp: 155, backpack: 21, power: 21, cost: 150000 },
+  { level: 13, maxHp: 160, backpack: 22, power: 22, cost: 200000 },
+  { level: 14, maxHp: 165, backpack: 23, power: 23, cost: 200000 },
+  { level: 15, maxHp: 170, backpack: 24, power: 24, cost: 200000 },
+  { level: 16, maxHp: 175, backpack: 25, power: 25, cost: 300000 },
+  { level: 17, maxHp: 180, backpack: 26, power: 26, cost: 300000 },
+  { level: 18, maxHp: 185, backpack: 27, power: 27, cost: 500000 },
+  { level: 19, maxHp: 190, backpack: 28, power: 28, cost: 700000 },
+  { level: 20, maxHp: 200, backpack: 30, power: 30, cost: 1000000 },
+];
+
+// ===================================================================
+// 本地存储存档结构（对标原版 RMS 记录系统）
+// ===================================================================
+
+export interface SaveData {
+  coins: number;
+  level: number;
+  crystals: number[]; // 8种水晶
+  completedStages: string[];
+  endlessRecord: number;
+}
