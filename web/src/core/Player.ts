@@ -11,7 +11,7 @@
 import {
   COLS, ROWS, TILE_SIZE, SpecialType, CrystalType, TreasureKind,
   CRYSTAL_METAS, UPGRADE_MATRIX,
-  type PlayerState, type StageInfo, type SaveData,
+  type PlayerState, type StageInfo, type SaveData, type Tile,
 } from './Types';
 import { GridEngine } from './GridEngine';
 
@@ -81,57 +81,42 @@ export class PlayerController {
     return this.state.crystals.reduce((a, b) => a + b, 0);
   }
 
-  // ── 尝试拾取或交互格子 ──
-  private handleTileInteraction(nx: number, ny: number): boolean {
-    const tile = this.engine.grid[ny]?.[nx];
-    if (!tile) return false;
+  // ── 拾取宝藏或水晶物品（触碰或从天而降接住）──
+  public collectTileItem(tile: Tile, wx?: number, wy?: number): boolean {
+    const px = wx ?? (this.state.x + TILE_SIZE / 2);
+    const py = wy ?? (this.state.y + TILE_SIZE / 2);
 
-    // 1. 空白直接通行
-    if (tile.kind === SpecialType.EMPTY) {
-      this.moveTo(nx, ny);
-      return true;
-    }
-
-    // 2. 可拾取法术水晶
+    // 1. 法术水晶
     if (tile.kind === SpecialType.CRYSTAL && tile.crystalType !== undefined) {
       if (this.getTotalCrystals() >= this.state.maxBackpack) {
-        this.engine.addFloatingText(
-          nx * TILE_SIZE + TILE_SIZE / 2,
-          ny * TILE_SIZE,
-          '🎒 道具栏已满!',
-          '#ff5252',
-          18
-        );
+        this.engine.addFloatingText(px, py, '🎒 道具栏已满!', '#ff5252', 18);
         return false;
       }
 
-      const crystalType = tile.crystalType;
+      const crystalType = tile.crystalType as CrystalType;
       const meta = CRYSTAL_METAS[crystalType];
       this.state.crystals[crystalType]++;
-      this.engine.clearTile(nx, ny);
       this.engine.audio.playRelicFound();
       this.engine.addFloatingText(
-        nx * TILE_SIZE + TILE_SIZE / 2,
-        ny * TILE_SIZE,
+        px,
+        py - 10,
         `+1 ${meta.name} ${meta.icon}`,
         meta.color,
         18
       );
       this.onInventoryChange?.();
-      this.moveTo(nx, ny);
       return true;
     }
 
-    // 3. 即时宝藏
+    // 2. 即时宝藏
     if (tile.kind === SpecialType.TREASURE) {
       if (tile.treasureKind === TreasureKind.ENERGY_ORB) {
         // 即时能量水晶：HP+20
         this.state.hp = Math.min(this.state.maxHp, this.state.hp + 20);
-        this.engine.clearTile(nx, ny);
         this.engine.audio.playRelicFound();
         this.engine.addFloatingText(
-          nx * TILE_SIZE + TILE_SIZE / 2,
-          ny * TILE_SIZE,
+          px,
+          py - 10,
           '+20 ⚡ 能量恢复',
           '#00e5ff',
           20
@@ -147,17 +132,46 @@ export class PlayerController {
 
         this.state.sessionCoins += coins;
         this.state.coins += coins;
-        this.engine.clearTile(nx, ny);
         this.engine.audio.playRelicFound();
         this.engine.addFloatingText(
-          nx * TILE_SIZE + TILE_SIZE / 2,
-          ny * TILE_SIZE,
+          px,
+          py - 10,
           `+${coins} 💰 ${name}`,
           '#ffd700',
           20
         );
         this.onCoinCollect?.(coins);
       }
+      return true;
+    }
+
+    return false;
+  }
+
+  // ── 尝试拾取或交互格子 ──
+  private handleTileInteraction(nx: number, ny: number): boolean {
+    const tile = this.engine.grid[ny]?.[nx];
+    if (!tile) return false;
+
+    // 1. 空白直接通行
+    if (tile.kind === SpecialType.EMPTY) {
+      this.moveTo(nx, ny);
+      return true;
+    }
+
+    // 2. 可拾取法术水晶与即时宝藏
+    if (tile.kind === SpecialType.CRYSTAL || tile.kind === SpecialType.TREASURE) {
+      const collected = this.collectTileItem(tile, nx * TILE_SIZE + TILE_SIZE / 2, ny * TILE_SIZE);
+      if (collected) {
+        this.engine.clearTile(nx, ny);
+        this.moveTo(nx, ny);
+        return true;
+      }
+      return false;
+    }
+
+    // 3. 通关目标
+    if (tile.kind === SpecialType.GOAL) {
       this.moveTo(nx, ny);
       return true;
     }
@@ -194,14 +208,22 @@ export class PlayerController {
 
       if (nx < 0 || nx >= COLS) return false;
 
-      // 前方是空位/宝藏/水晶（可通行）
-      if (this.isPassable(nx, ny)) {
-        // 原版 b.java:2914：若前方格子下方也是空的，玩家前移并顺势下落 1 格台阶
-        if (ny + 1 < ROWS && this.isPassable(nx, ny + 1)) {
-          this.handleTileInteraction(nx, ny);
+      const targetTile = this.engine.grid[ny]?.[nx];
+
+      // 前方是纯空气空格
+      if (targetTile?.kind === SpecialType.EMPTY) {
+        // 原版 b.java:2914：若目标格下方也是纯空格，玩家前移并顺势下落 1 格台阶
+        const belowTile = ny + 1 < ROWS ? this.engine.grid[ny + 1]?.[nx] : null;
+        if (belowTile && belowTile.kind === SpecialType.EMPTY) {
           this.moveTo(nx, ny + 1);
           return true;
         }
+        this.moveTo(nx, ny);
+        return true;
+      }
+
+      // 前方是宝藏或水晶：走入该格并实实在在地拾取宝物
+      if (targetTile?.kind === SpecialType.TREASURE || targetTile?.kind === SpecialType.CRYSTAL) {
         return this.handleTileInteraction(nx, ny);
       }
 
@@ -457,9 +479,17 @@ export class PlayerController {
         const belowY = this.state.gridY + 1;
         if (belowY < ROWS) {
           const belowTile = this.engine.grid[belowY]?.[this.state.gridX];
-          if (belowTile && belowTile.kind === SpecialType.EMPTY) {
-            this.moveTo(this.state.gridX, belowY);
-            this.fallCooldown = 0.08;
+          if (belowTile) {
+            if (belowTile.kind === SpecialType.EMPTY) {
+              this.moveTo(this.state.gridX, belowY);
+              this.fallCooldown = 0.08;
+            } else if (belowTile.kind === SpecialType.TREASURE || belowTile.kind === SpecialType.CRYSTAL) {
+              // 原版 b.java:356：悬空坠落时，若脚下是宝藏或水晶，直接落入并拾取！
+              this.collectTileItem(belowTile, this.state.gridX * TILE_SIZE + TILE_SIZE / 2, belowY * TILE_SIZE);
+              this.engine.clearTile(this.state.gridX, belowY);
+              this.moveTo(this.state.gridX, belowY);
+              this.fallCooldown = 0.08;
+            }
           }
         }
       }

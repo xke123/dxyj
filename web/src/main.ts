@@ -699,10 +699,12 @@ class GameManager {
       if (this.phase === 'playing') {
         this.handlePlayerContinuousInput(dt);
         this.player.update(dt);
-        this.engine.updatePhysics(dt,
+        this.engine.updatePhysics(
+          dt,
           this.player.state.gridX,
           this.player.state.gridY,
-          () => this.player.onCrush()
+          () => this.player.onCrush(),
+          (tile) => this.player.collectTileItem(tile)
         );
         this.engine.updateFloatingTexts(dt);
         this.particles.update(dt);

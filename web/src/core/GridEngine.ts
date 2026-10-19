@@ -409,25 +409,39 @@ export class GridEngine {
     return cleared;
   }
 
-  // ── 原版 aa()：受砸脱困机制（消除玩家正上方一整列直至头顶的坚硬方块，解救玩家）──
+  // ── 原版 aa()：受砸脱困保护机制（清除玩家所在列以及左右相邻列从顶部直至头顶的所有方块，解救脱困）──
   public clearColumnAbovePlayer(playerCol: number, playerRow: number): void {
     let cleared = false;
-    for (let r = 0; r <= playerRow; r++) {
-      const tile = this.grid[r]?.[playerCol];
-      if (tile && (isColor(tile.kind) || tile.kind === SpecialType.ROCK)) {
-        this.emitShatter(playerCol, r, isColor(tile.kind) ? TILE_COLORS[tile.kind as number].main : '#90a4ae', 8);
-        this.grid[r][playerCol] = makeEmpty();
-        cleared = true;
+    const startC = Math.max(0, playerCol - 1);
+    const endC = Math.min(COLS - 1, playerCol + 1);
+
+    for (let c = startC; c <= endC; c++) {
+      for (let r = 0; r <= playerRow; r++) {
+        const tile = this.grid[r]?.[c];
+        if (tile && tile.kind !== SpecialType.EMPTY && tile.kind !== SpecialType.GOAL) {
+          const color = isColor(tile.kind)
+            ? TILE_COLORS[tile.kind as number].main
+            : (tile.kind === SpecialType.ROCK ? '#90a4ae' : '#ffd700');
+          this.emitShatter(c, r, color, 8);
+          this.grid[r][c] = makeEmpty();
+          cleared = true;
+        }
       }
     }
     if (cleared) {
-      this.camera?.triggerShake(6, 0.15);
+      this.camera?.triggerShake(8, 0.2);
       this.audio.playCascadeRumble();
     }
   }
 
-  // ── 原版 ax() + as()：物理状态机（结构支撑吸附、下落、被砸惩罚与落地连击消除）──
-  public updatePhysics(dt: number, playerX?: number, playerY?: number, onCrush?: () => void): void {
+  // ── 原版 ax() + as()：物理状态机（结构支撑吸附、下落、接住宝藏与被砸惩罚脱困）──
+  public updatePhysics(
+    dt: number,
+    playerX?: number,
+    playerY?: number,
+    onCrush?: () => void,
+    onCollectItem?: (tile: Tile) => void
+  ): void {
     const timeNow = performance.now();
 
     // 更新激光特效计时
@@ -557,13 +571,29 @@ export class GridEngine {
         const belowR = r + 1;
         const belowTile = this.grid[belowR][c];
 
-        // 1. 砸中玩家判定（原版 b.java:2354 判定 cc[bL.x][bL.c]）
+        // 1. 掉落物到达玩家所在格判定（原版 b.java:2309 与 2354）
         if (playerX !== undefined && playerY !== undefined && belowR === playerY && c === playerX) {
-          onCrush?.();
-          tile.falling = false;
-          tile.landed = true;
-          tile.fallYOffset = 0;
-          continue;
+          // 原版 b.java:2309: 9 <= f < 23 为宝藏与水晶（绝对不砸伤玩家，而是被玩家直接“接住”拾取！）
+          if (tile.kind === SpecialType.TREASURE || tile.kind === SpecialType.CRYSTAL) {
+            onCollectItem?.(tile);
+            this.grid[r][c] = makeEmpty();
+            continue;
+          }
+
+          // 原版 b.java:2354: 0 <= f <= 8 为色块与岩石，坠落砸伤玩家！
+          if (isColor(tile.kind) || tile.kind === SpecialType.ROCK) {
+            onCrush?.();
+            // 实体方块落地进入玩家身处的物理格（停止坠落并占据该格，清空上方旧格，绝不产生无限循环反复砸击）
+            this.grid[belowR][c] = {
+              ...tile,
+              falling: false,
+              shakeWarning: false,
+              landed: true,
+              fallYOffset: 0,
+            };
+            this.grid[r][c] = makeEmpty();
+            continue;
+          }
         }
 
         // 2. 下方为空白：继续下落 1 格

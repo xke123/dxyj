@@ -201,27 +201,42 @@ export class CanvasRenderer {
       ctx.fillText(`${tile.durability}`, x + S / 2, y + S / 2);
 
     } else if (kind === SpecialType.CRYSTAL) {
-      // ── 8大核心主动功能水晶 ──
+      // ── 8大核心主动功能水晶：坚固的玄武岩深渊基底 + 璀璨法术晶体 ──
       const crystalType = tile.crystalType ?? CrystalType.RED;
       const meta = CRYSTAL_METAS[crystalType];
 
-      // 底槽背景
-      ctx.fillStyle = '#11151f';
+      // 实体矿石基底（实心方块质感，清晰占据网格）
+      ctx.fillStyle = '#1a2233';
       ctx.fillRect(x + pad, y + pad, inner, inner);
 
-      const pulse = 0.7 + 0.3 * Math.sin(now * 0.008 + x);
+      // 上左高光棱边
+      ctx.fillStyle = '#2d3b56';
+      ctx.fillRect(x + pad, y + pad, inner, 3);
+      ctx.fillRect(x + pad, y + pad, 3, inner);
+
+      // 下右深色阴影
+      ctx.fillStyle = '#0f1420';
+      ctx.fillRect(x + pad, y + S - pad - 3, inner, 3);
+      ctx.fillRect(x + S - pad - 3, y + pad, 3, inner);
+
+      // 内凹能量槽
+      const slotPad = 5;
+      ctx.fillStyle = '#0b0f17';
+      ctx.fillRect(x + slotPad, y + slotPad, S - slotPad * 2, S - slotPad * 2);
+
+      const pulse = 0.75 + 0.25 * Math.sin(now * 0.008 + x * 0.1);
       ctx.strokeStyle = meta.color;
-      ctx.lineWidth = 2;
-      ctx.strokeRect(x + 3, y + 3, S - 6, S - 6);
+      ctx.lineWidth = 1.5;
+      ctx.strokeRect(x + slotPad, y + slotPad, S - slotPad * 2, S - slotPad * 2);
 
       // 菱形宝石晶体
       const cx = x + S / 2;
       const cy = y + S / 2;
-      const r = S * 0.32;
+      const r = S * 0.28;
 
       ctx.save();
       ctx.shadowColor = meta.color;
-      ctx.shadowBlur = 10 * pulse;
+      ctx.shadowBlur = 12 * pulse;
       ctx.fillStyle = meta.color;
       ctx.beginPath();
       ctx.moveTo(cx, cy - r);
@@ -233,7 +248,7 @@ export class CanvasRenderer {
       ctx.restore();
 
       // 水晶高光折射面
-      ctx.fillStyle = 'rgba(255, 255, 255, 0.65)';
+      ctx.fillStyle = 'rgba(255, 255, 255, 0.7)';
       ctx.beginPath();
       ctx.moveTo(cx, cy - r);
       ctx.lineTo(cx + r * 0.4, cy - r * 0.2);
@@ -242,52 +257,92 @@ export class CanvasRenderer {
       ctx.closePath();
       ctx.fill();
 
-      // 小图标/文字标示
-      ctx.font = '10px monospace';
+      // 水晶短名文字标示
+      ctx.font = 'bold 10px monospace';
       ctx.fillStyle = '#ffffff';
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
-      ctx.fillText(meta.shortName, cx, cy + r * 0.2);
+      ctx.fillText(meta.shortName, cx, cy + r * 0.35);
 
     } else if (kind === SpecialType.TREASURE) {
-      // ── 即时宝藏与能量球 ──
-      ctx.fillStyle = '#161922';
+      // ── 即时宝藏与能量球：实心古代宝箱/浮雕秘宝方块（实实在在占据完整网格）──
+      const isEnergy = tile.treasureKind === TreasureKind.ENERGY_ORB;
+
+      // 1. 实心方块基底（宝藏为古典红木/金铜铸造实心方块，能量球为深海符文实心岩石）
+      const baseMain = isEnergy ? '#0d2838' : '#3e2723';
+      const baseLight = isEnergy ? '#194d6b' : '#5d4037';
+      const baseDark = isEnergy ? '#06131c' : '#1b0000';
+
+      ctx.fillStyle = baseMain;
       ctx.fillRect(x + pad, y + pad, inner, inner);
 
-      const glow = 0.6 + 0.4 * Math.sin(now * 0.012 + y);
-      ctx.strokeStyle = `rgba(255, 215, 0, ${glow})`;
+      // 上左高光棱边
+      ctx.fillStyle = baseLight;
+      ctx.fillRect(x + pad, y + pad, inner, 3);
+      ctx.fillRect(x + pad, y + pad, 3, inner);
+
+      // 下右阴影
+      ctx.fillStyle = baseDark;
+      ctx.fillRect(x + pad, y + S - pad - 3, inner, 3);
+      ctx.fillRect(x + S - pad - 3, y + pad, 3, inner);
+
+      // 2. 宝箱/古迹金属包边与四角金铜铆钉
+      const glow = 0.7 + 0.3 * Math.sin(now * 0.01 + y * 0.1);
+      const frameColor = isEnergy ? `rgba(0, 229, 255, ${glow})` : `rgba(255, 215, 0, ${glow})`;
+      ctx.strokeStyle = frameColor;
       ctx.lineWidth = 2;
-      ctx.strokeRect(x + 3, y + 3, S - 6, S - 6);
+      ctx.strokeRect(x + 4, y + 4, S - 8, S - 8);
+
+      // 四角铆钉
+      ctx.fillStyle = isEnergy ? '#80d8ff' : '#ffe082';
+      const rivetOff = 5;
+      const rivetR = 2;
+      for (const [rx, ry] of [
+        [x + rivetOff, y + rivetOff],
+        [x + S - rivetOff, y + rivetOff],
+        [x + rivetOff, y + S - rivetOff],
+        [x + S - rivetOff, y + S - rivetOff],
+      ]) {
+        ctx.beginPath();
+        ctx.arc(rx, ry, rivetR, 0, Math.PI * 2);
+        ctx.fill();
+      }
 
       const cx = x + S / 2;
       const cy = y + S / 2;
 
-      if (tile.treasureKind === TreasureKind.ENERGY_ORB) {
-        // 即时能量水晶球（蓝光闪烁）
+      if (isEnergy) {
+        // 即时能量水晶球（蓝光呼吸闪烁）
         ctx.save();
         ctx.shadowColor = '#00e5ff';
-        ctx.shadowBlur = 12 * glow;
+        ctx.shadowBlur = 14 * glow;
         ctx.fillStyle = '#00e5ff';
         ctx.beginPath();
-        ctx.arc(cx, cy, S * 0.28, 0, Math.PI * 2);
+        ctx.arc(cx, cy, S * 0.26, 0, Math.PI * 2);
         ctx.fill();
         ctx.restore();
 
-        ctx.font = `${S * 0.4}px sans-serif`;
+        ctx.font = `${S * 0.38}px sans-serif`;
         ctx.textAlign = 'center';
         ctx.textBaseline = 'middle';
         ctx.fillText('⚡', cx, cy + 1);
       } else {
-        // 金币与文物
+        // 金币、化石、古董、钻石宝藏浮雕徽章
         let icon = '💰';
         if (tile.treasureKind === TreasureKind.FOSSIL) icon = '🦴';
         else if (tile.treasureKind === TreasureKind.ANTIQUE) icon = '🏺';
         else if (tile.treasureKind === TreasureKind.DIAMOND) icon = '💎';
+        else if (tile.treasureKind === TreasureKind.GOLD_BAR) icon = '👑';
 
-        ctx.font = `${S * 0.5}px sans-serif`;
+        // 徽章光芒与图标
+        ctx.save();
+        ctx.shadowColor = '#ffd700';
+        ctx.shadowBlur = 10 * glow;
+        ctx.font = `${S * 0.48}px sans-serif`;
         ctx.textAlign = 'center';
         ctx.textBaseline = 'middle';
         ctx.fillText(icon, cx, cy + 1);
+        ctx.restore();
       }
     }
 
